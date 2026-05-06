@@ -1,0 +1,1039 @@
+\documentclass[preprint,7pt, a4paper]{elsarticle}
+
+
+% if you need to pass options to natbib, use, e.g.:
+%     \PassOptionsToPackage{numbers, compress}{natbib}
+% before loading neurips_2023
+
+
+% to compile a preprint version, e.g., for submission to arXiv, add add the
+% [preprint] option:
+%     \usepackage[preprint]{neurips_2023}
+
+
+% to compile a camera-ready version, add the [final] option, e.g.:
+%     \usepackage[final]{neurips_2023}
+
+
+% to avoid loading the natbib package, add option nonatbib:
+%    \usepackage[nonatbib]{neurips_2023}
+
+
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+% \usepackage{xcolor}         % colors
+\usepackage{amsmath}
+\usepackage{setspace}
+\usepackage{fontawesome5}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{bm}
+\usepackage[x11names]{xcolor}
+\usepackage{geometry}
+
+\usepackage{color, colortbl}
+\definecolor{Gray}{gray}{0.9}
+
+\geometry{
+ a4paper,
+ left=20mm,
+ right=20mm,
+ top=30mm,
+ bottom=40mm
+ }
+
+
+
+\begin{document}
+\Large\noindent\textbf{\textcolor{red}{Boosting Saliency Differentiation: Simultaneously Enhancing Interpretability and Performance via Cognitively Aligning AI-Assisted Diagnostic Procedure With Physician}}\\
+\normalsize
+
+\section{Abstract}
+\textcolor{red}{In Computer-Aided Diagnosis (CAD), improving predictive performance while ensuring interpretability that physicians can understand the plausible evidences of the AI-assisted diagnosis remains understudied. This difficulty arises from two reasons frequently observed in medical image classification: (1) insufficient differentiation between saliency maps of true and false classes, and (2) shortcut learning, where models rely on spurious peripheral features instead of diagnostically relevant regions. To address these issues, we propose a new framework applicable to both CNN- and Transformer-based architectures. First, we introduce \textbf{Interpretable Class Parallelism (ICP)}, which replaces the shared final block with class-specific parallel blocks to reduce feature sharing and promote class-wise representation decoupling. To explicitly encourage saliency separation, we design a \textbf{Functionality Loss} that increases activation in true-class saliency maps while suppressing false-class responses. Second, we introduce a complementary training stage with a \textbf{Boost Loss}, which enforces prediction consistency between original and masked inputs generated from saliency maps. This stage reduces reliance on peripheral cues that are not related to the evidence of diseases and promotes robustness to focusing on the disease-irrelevant features. To quantitatively assess interpretability within predefined critical regions, we further propose the \textbf{Bounding-box Difference (BD)} metric, which measures the relative activation difference between true and false class saliency maps inside annotated diagnostic regions. Experiments on large-scale chest X-ray benchmarks prove the promising improvements in AUC and the quality enhancement of saliency map compared to baseline architectures and previous methods. These results suggest that cognitively aligning AI diagnostics with physicians via architectural decoupling combined with interpretability-aware optimization can improve both diagnostic performance and robustness in medical image classification.}
+
+% In Computer-Aided Diagnosis (CAD), enhancing model performance and ensuring its interpretability are crucial yet often conflicting objectives. This trade-off stems from two critical issues: insufficient saliency differentiation between diagnostic classes and shortcut learning, where models rely on spurious, non-clinical features. Here, we propose a framework to simultaneously resolve these problems in both CNNs and Transformers. Our approach introduces \textbf{Interpretable Class Parallelism (ICP)}—an architecture with class-specific final layers—to generate distinct feature maps for each diagnostic outcome. We pair this with a two-stage training strategy utilizing two novel loss functions: a \textbf{Functionality Loss} to maximize the saliency gap between true and false classes, and a \textbf{Boost Loss} designed to mitigate shortcut learning by refocusing the model on critical diagnostic regions. To quantitatively assess these improvements, we also propose the \textbf{Bounding-box Difference (BD)}, a new metric for evaluating saliency map quality. Experiments on large-scale medical X-ray datasets demonstrate that our framework enhances both diagnostic performance and interpretability, providing a scalable path toward more reliable and transparent AI-assisted diagnostics.
+
+\section{Introduction}
+\textcolor{red}{Computer-aided diagnosis (CAD) has advanced substantially in recent years, with improvements reported in predictive performance, interpretability, and model versatility \cite{54,55,60,61,71}. Although multimodal large language models (MLLMs) \cite{69,70} are emerging for medical applications, convolutional neural networks (CNNs) and Transformer-based architectures remain widely used in practice, particularly in resource-constrained clinical environments due to their computational efficiency and established interpretation techniques.}
+
+\textcolor{red}{In image-based CAD systems, saliency maps \cite{5,6,7} are commonly employed to visualize model attention by highlighting image regions that most influence predictions. Representative approaches include Grad-CAM \cite{1}, Grad-CAM++ \cite{2}, and related extensions \cite{5,6,63}, which adapt class activation mapping (CAM) \cite{4} for post-hoc explanation. Similar techniques have been applied to Transformer architectures \cite{67,74,66}. While these methods provide visual explanations, they do not explicitly enforce class-wise differentiation during training.}
+
+\textcolor{red}{Despite extensive efforts to improve either predictive performance or interpretability, jointly improving both remains challenging \cite{57,58,59}. In practical CAD systems, we observe two recurring issues. First, saliency maps corresponding to true and false classes often exhibit limited differentiation \cite{7}, particularly in multi-label medical settings where multiple pathologies may coexist. This overlap makes it difficult to determine whether the model distinguishes diagnostically relevant features or merely produces visually similar activation patterns. Second, shortcut learning \cite{56} frequently occurs, where models exploit peripheral cues (e.g., background patterns, imaging artifacts, or text markers) that correlate with labels but lack clinical relevance. Such behavior reduces robustness and undermines clinical trust making AI assisted diagnosis difficult to interpret to physicians.}
+
+\textcolor{red}{We hypothesize that insufficient saliency differentiation partly arises from architectural feature that uses the same convolution blocks for classify each disease. When all classes rely on a shared final representation, class-specific saliency activation patterns may not be sufficiently distinct between diseases. In addition, shortcut learning interferes interpretable diagnostics of AI because conventional training objectives optimize prediction accuracy alone without explicitly constraining models to learn bias in the given training dataset.}
+
+\textcolor{red}{To address these limitations, we propose a framework that is more aligned with physician's diagnostic procedure, in which they focus on the important regions in the X-ray images that contain the evidence of diseases to make the diagnostic decision: (1) reduces feature sharing across classes to promote class-wise representation decoupling and (2) integrates interpretability-aware objectives into training to discourage reliance on peripheral cues that are unrelated to the evidence of the diseases. Specifically, we introduce \textbf{Interpretable Class Parallelism (ICP)}, which replaces the shared final block with class-specific parallel blocks. To encourage differentiation between true and false classes, we design a \textbf{Functionality Loss} that increases activation in true-class saliency maps while suppressing false-class responses.} 
+
+\textcolor{red}{Building upon this representation-level separation, we further introduce a second training stage with a \textbf{Boost Loss}, which enforces prediction consistency between original and saliency-masked inputs that darken the peripheral regions that are not related to the evidence of diseases. This stage aims to reduce shortcut reliance by encouraging the model to base its decisions on diagnostically relevant regions that aligns this diagnostic procedure with physicians. Importantly, these stages address complementary failure modes: Stage 1 promotes class-wise saliency separation, whereas Stage 2 further improves robustness to focusing on the critical region in the image that contain the key evidence of the diseases.}
+
+\textcolor{red}{To quantitatively evaluate attribution behavior within annotated diagnostic regions, we additionally introduce the \textbf{Bounding-box Difference (BD)} metric, which measures the relative activation difference between true and false class saliency maps inside predefined critical regions that contain the evidence of the diseases. We position BD as a complementary quantitative proxy for spatial differentiation, alongside conventional performance and deletion-based metrics. In addition, several abbreviations used in this research are described in the Table \ref{tab:9}.}
+
+\textcolor{red}{Via experiments on large-scale chest X-ray benchmarks, we show that the proposed framework improves class-wise saliency separation and reduces shortcut learning-related overfitting while maintaining or improving classification performance. These results suggest that architectural decoupling combined with interpretability-aware optimization can enhance both robustness and transparency in medical image classification.}
+
+% Computer-aided diagnosis (CAD) has continued to advance rapidly in recent years, with significant improvements in interpretability \cite{54, 55}, performance \cite{60, 61}, and versatility \cite{71}. While multimodal large language models (MLLMs) \cite{69,70} show promise for CAD applications, smaller-scale models such as Convolutional Neural Networks (CNN) and Transformers remain viable options in resource-constrained environments due to their lower computational requirements and established interpretability methods.
+
+% In CNNs, saliency maps \cite{5, 6, 7} are widely used to interpret their behavior for image classifications by highlighting the most important regions of the image that influence the model prediction. For example, methods like Grad-CAM \cite{1}, Grad-CAM++ \cite{2}, and others (Score-CAM, U-CAM, SLICE) \cite{5, 6, 63}, which are extensions of class activation maps (CAM) \cite{4}, have enhanced the interpretability of CNN-based image classification. Similarly, for Transformers, methods such as Grad-CAM \cite{1}, Grad-SAM \cite{67}, and others \cite{74, 66} have been applied to elucidate their decision-making processes. To improve performance, tones of methods have been proposed in various fields \cite{7,75, 76, 77}. 
+
+% Despite numerous studies aimed at improving either interpretability or performance individually, developing methods that enhance both simultaneously remains a significant challenge \cite{57, 58, 59}. This challenge stems from two critical issues in current CAD systems: (1) saliency maps for different classes often exhibit insignificant differentiation \cite{7}, making it challenging to distinguish diagnostically relevant features, and (2) shortcut learning \cite{56} frequently occurs, where trained models rely on peripheral features such as the background that do not provide meaningful information about true classes. These issues lead to diagnostic decisions not aligning with medical experts' understanding, potentially undermining trust in CAD systems and limiting their clinical utility.
+
+% One possible reason for the small difference between saliency maps between true and false classes is that they are usually generated using the common last block sharing features across all classes. This feature sharing restricts the generation of class-specific feature maps because all classes rely on the same set of features for saliency map generation. Therefore, this problem could be solved by modifying model architecture in a way that reduces the degree of feature sharing. Shortcut learning occurs because of limited training objectives, which are typically focused only on reducing error rates. To mitigate this issue, the quality of saliency maps should be incorporated as an additional objective during model training.
+
+% To address these challenges, we propose solutions that modify model architecture to reduce feature sharing across classes and incorporate saliency map quality as an additional training objective. Our approach reduces the degree of feature sharing between classes by introducing a novel network modification strategy and incorporates specialized loss functions during training to mitigate shortcut learning In addition, we propose a new metric, Bounding-box Difference, which is capable of quantitatively measuring interpretability.
+
+% Through comprehensive experiments on popular medical imaging benchmark datasets, we demonstrate that our proposed methods significantly improve both diagnostic performance and interpretability compared to existing approaches. Our contributions strengthen CAD systems for real-world deployment in resource-constrained environments, ensuring improved diagnostic reliability and transparency.
+
+Our entire contributions in this study are as follows:
+
+
+\begin{itemize}
+\item \textbf{Two-Stage Training Framework:} We divide training into two Stages to improve performance and interpretability. In the first Stage, a network is trained to generate distinctive saliency maps between true and false classes. \textcolor{red}{In the second Stage, by inducing model to further focus on critical area rather than peripheral attributes that are not directly related to the evidence of diseases in the X-ray images.}
+\item \textbf{Stage 1 - Interpretable Class Parallelism (ICP) \& Functionality Loss:} \textcolor{red}{In stage 1, we} introduce a network modification strategy named as Interpretable Class Parallelism (ICP), that enables the generation of distinct saliency maps for each class. Additionally, we devised Functionality Loss to enhance the distinction between "true" and "false" classes’ saliency maps.
+\item \textbf{Stage 2 - Boost Loss \& Masking Strategy:} This approach that is used in Stage 2, encourages the model to focus on critical attributes, increasing the gap between saliency maps of true and false classes. \textcolor{red}{To achieve this goal, we mask the original image where saliency activation of the "true" class is weak, then reduce the performance gap between this modified image and the original image.}
+\item \textbf{New Metric - Bounding-box Difference (BD):} We propose a new metric, Bounding-box Difference (BD), to assess the interpretability in medical diagnostics quantitatively \textcolor{red}{via computing the difference of saliency map activeness particularly in the B-Box region between "true" and "false" classes.}
+\item \textbf{Experimental Verification: } \textcolor{red}{Via various experiments across Experimental Section and Appendix, we proved that our proposed methods can both improve performance and interpretability simultaneously, via aligning saliency activation with physician's diagnostic procedure in which they focus on the regions in the X-ray images that contains the evidence of corresponding diseases. We also translated our method into more practical scenarios, to explore its adaptability in the real-world environments.}
+\end{itemize}
+
+\section{Problem Definition}
+
+%\subsection{The Definitions of true and false classes}
+\subsection{True and False Classes in Multi-Label CAD}
+
+In medical image classification, multi-label settings are common, as a single image may contain multiple co-existing pathologies. Unlike standard multi-class classification, where only one class is positive, multi-label classification allows several classes to be simultaneously assigned to the same image.
+
+For the purpose of explicitly modeling class-wise saliency differentiation, we distinguish between \emph{true} and \emph{false} classes on a per-sample basis. This distinction is introduced to formalize the optimization objective used in Stage~1, which aims to increase activation in diagnostically relevant classes while suppressing non-relevant ones.
+
+\begin{itemize}
+\item \textbf{Definition 1 (True class):} Any class assigned a positive label ($1$) for a given input sample.
+\item \textbf{Definition 2 (False class):} Any class assigned a negative label ($0$) for the same input sample.
+\end{itemize}
+
+Importantly, this definition is applied at the sample level and remains valid for both multi-class and multi-label settings. In multi-label cases, multiple classes may simultaneously be considered true, and their saliency maps may spatially overlap. Therefore, our objective is not to enforce complete spatial separation, but to increase the relative activation intensity of true classes compared to false classes within diagnostically relevant regions.
+% In multi-class classification, the true class is defined as the single class assigned a positive label, while all other classes are considered false classes. Unlike multi-class classification, where each input sample is assigned to only one class, multi-label classification allows an input sample to be associated with multiple labels and assigned to multiple classes simultaneously. This situation requires network to make decisions for multiple categories concurrently, often focusing on the same region of the image between different classes—particularly in cases where a patient has multiple diseases in the same region. For example, a patient may exhibit signs of both Pneumonia and Pleural Effusion and these conditions can affect overlapping regions in a planar X-ray image. To address this, we define the true and false classes as follows:
+% \begin{itemize}
+% \item \noindent\textit{\textbf{Definition 1 (true class)}: Any classes with a positive (1) label.}
+% \item  \textit{ \textbf{Definition 2 (false class)}: Any classes which have negative (0) label.}
+% \end{itemize}
+
+\subsection{Conditions for better interpretability for the medical diagnostics}
+
+\begin{table*}
+    \centering
+    \resizebox{\textwidth}{!}{\begin{tabular}{c|c}
+        \toprule
+        \multicolumn{2}{c}{\textbf{Abbreviations}}\\
+        \midrule
+        Abbreviation & Description \\
+        \midrule
+        BD & Bounding-box Difference. This compares the difference of saliency-activation in the bounding-box region.\\
+        DT & Deletion score of "true classes". It is the difference of AUC score between original image and the image the saliency-activated region of these classes is deleted. \\
+        DF & Deletion score of "false classes". It is the difference of AUC score between original image and the image the saliency-activated region of these classes is deleted.\\
+        DT-DF & The difference between DT and DF. We subtracted the DF value from the DT. \\
+        ICP & This represents Interpretable Class Parallelism, that is the name of our newly proposed network modification method. \\
+        \midrule
+    \end{tabular}}
+    \caption{\textcolor{red}{List of abbreviations and their corresponding explanations used in this study.}}
+    \label{tab:9}
+\end{table*}
+
+Defining interpretability in machine learning is inherently context-dependent \cite{43}. In medical imaging, however, clinical practice provides prior knowledge about anatomically and diagnostically relevant regions. We formalize this prior by introducing the concept of \emph{critical regions}.
+
+\begin{itemize}
+    \item \textbf{Definition 3 (Critical region):} Image regions that contain clinically relevant evidence for a given condition, as specified by available annotations (e.g., bounding boxes) or established radiological criteria. For example, pleural effusion commonly manifests near the lung base, while pneumonia presents as localized consolidations.
+\end{itemize}
+
+Given such region-level priors, saliency maps can be evaluated with respect to two operational properties. First, a model should assign substantial attribution to clinically relevant regions rather than peripheral artifacts. Second, attribution for classes labeled as present (true classes) should exceed attribution for classes labeled as absent (false classes) within these regions.
+
+These properties do not require complete spatial separation between classes, particularly in multi-label scenarios where pathologies may overlap. Instead, they emphasize relative activation strength within clinically meaningful areas.
+
+Accordingly, we consider the following operational conditions:
+
+\begin{itemize}
+    \item \textbf{Condition 1 (Region relevance):} Saliency maps for true classes exhibit non-trivial activation within predefined critical regions.
+    \item \textbf{Condition 2 (Differential activation):} Within critical regions, saliency activation for true classes exceeds that of false classes on average.
+\end{itemize}
+
+These conditions translate clinical priors into measurable criteria, which are later operationalized through the proposed training objectives and quantitative evaluation metrics.
+
+% \subsection{Conditions for better interpretability for the medical diagnostics}
+
+% While defining interpretability in machine learning remains challenging \cite{43}, medical contexts provide specific criteria that can guide improvement. We introduce the concept of "critical regions" as a foundation for developing these criteria:
+
+% \begin{itemize}
+%     \item \textit{\textbf{Definition 3 (critical Region):} Specific areas in an image that contain diagnostically relevant information for identifying a particular condition. For example, in chest X-rays, effusion typically appears as increased opacity at the lung base, while pneumonia presents as localized opacities indicating consolidation.} 
+% \end{itemize}
+
+% When utilizing saliency maps, we can assess whether the model focuses on critical regions or other areas that lack meaningful information. If the model relies on peripheral regions in the chest X-ray, it may indicate a flawed decision-making process influenced by biases in the training data. This insight leads to the first condition for better interpretability.
+% Furthermore, in medical image classification, it is essential for the saliency maps of true classes to exhibit higher activation in critical regions compared to those of false classes. While saliency maps for true and false classes may overlap—reflecting the visual similarity of certain diseases such as pneumonia and masses—the intensity of activation in critical regions should be different. Radiologists often encounter similar ambiguities when interpretating images, so the distinction should lie in the degree of activation rather than complete separation. Based on these observations, we can derive second condition for better interpretability.
+
+
+% \begin{itemize}
+%     \item \textit{\textbf{Condition 1 (Region Relevance)}: Saliency maps for true classes should predominantly activate critical regions, indicating that the model bases its diagnoses on medically relevant evidence rather than arbitrary or peripheral features.} 
+%     \item \textit{\textbf{Condition 2 (Differential Activation):} Saliency maps for true classes should show stronger activation in critical regions compared to those of false classes. While some overlap between true and false class activations may occur—reflecting the visual similarity of certain conditions—the intensity of activation should clearly differentiate between them.}
+% \end{itemize}
+
+These conditions mirror the diagnostic process of radiologists, who often face similar ambiguities when interpreting medical images. The distinction lies not in the complete separation of features but in the strength of evidence for each potential diagnosis.
+
+The following sections detail our methodologies for satisfying these conditions (Section 4) and present experimental results demonstrating their effectiveness (Section 5).
+
+\begin{figure*}
+\begin{center}
+\includegraphics[width=5.5in, height=3.2in]{Figure1.png}
+\caption{Overview of the proposed framework. Our method consists of two training stages and a metric for interpretability assessment. In Stage 1, we introduce ICP and functionality loss to enhance performance and interoperability simultaneously. In Stage 2, we propose Boost Loss to improve both aspects further. After the training, we assess the interpretability using the newly proposed BD metric, along with other existing metrics.}
+\label{fig:overall}
+\end{center}
+\end{figure*}
+
+\section{Method}
+\label{sec:Methods}
+
+We propose a two-stage training framework to generate distinctive saliency maps that simultaneously improve both performance and interpretability. \textcolor{red}{This could be achieved via cognitively aligning human and AI's decision making procedure.} Figure 1 illustrates the complete workflow of our method.
+
+    \subsection{Overview of the Two-Stage Training Framework for Improving Diagnostic Reliability and Interpretability via Human-AI Cognitive Alignment}
+
+\textbf{First Stage (Sections 4.2, 4.3, 4.4):} We modify the network architecture by replacing the final block with parallel class-specific blocks. This architectural change, which we call Interpretable Class Parallelism (ICP), enables the network to generate distinct feature representations for each class. We train this modified network using a specialized loss function that encourages each parallel block to focus on features relevant to its assigned class. To make each block to produce saliency maps for each class, we propose a novel Functionality Loss and Detail-CAM (DCAM).\\
+\indent \textbf{Second Stage (Sections 4.5 and 4.6):} We further enhance the differentiation between true and false class saliency maps by introducing an additional training phase. Using the network trained in the first Stage as initialization, we apply a novel Boost Loss function that amplifies the activation differences between true and false classes in critical regions. This approach improves the model's focus on diagnostically relevant features and reduces shortcut learning.\\
+\indent \textbf{New Metric (Section 4.7):} We introduce a new evaluation metric that addresses limitations in existing measures of interpretability.
+
+
+\subsection{Interpretable Class Parallelism (ICP)}
+\label{m1}
+
+To improve performance and interpretability, previous studies have attempted to generate distinct saliency maps for different classes \cite{1, 4, 7}. However, this approach has a fundamental limitation: since all classes use the same underlying features, the resulting saliency maps often show insufficient differentiation between true and false classes.\\
+\indent To address this limitation, we modify the network architecture by replacing the last network block with a set of parallel blocks, each corresponding to a specific class. Unlike DFU$\_$SPNet \cite{43}, which employs 3 blocks of parallel convolution layers with multiple kernel sizes, our method adapts simpler parallelization right before the fully connected layer. This strategic placement enables the creation of heterogeneous saliency maps, as each parallel block can specialize in features relevant to its assigned class.\\
+\indent The true and false classes’ saliency maps obtained from this architecture can be formulated as below:
+
+
+\begin{equation}
+    \mathcal{S}^T = \frac{1}{\sum_{c=1}^C \bm{1}(l_c=1)} \sum_{c=1}^C \bm{1} (y=l_c = 1) \cdot \mathcal{S}_c
+    \label{eq5}
+\end{equation}
+
+\begin{equation}
+    \mathcal{S}^F = \frac{1}{\sum_{c=1}^C \bm{1}(l_c=0)} \sum_{c=1}^C \bm{1} (l_c = 0) \cdot \mathcal{S}_c
+    \label{eq6}
+\end{equation}
+
+$\mathcal{S}$ represents the saliency map, $T$ denotes the true class, and $F$ refers to the false class. $\mathcal{S}^T$ indicates the saliency map of the true classes, and $\mathcal{S}^F$ indicates the saliency map of the false classes. $C$ is the number of classes and $c$ is the index of a class.
+
+ICP addresses this limitation by creating a dedicated processing pathway for each class. Specifically, we replace the last network block with a set of parallel blocks—one for each class in the classification task. Unlike the approach in \cite{44}, which employs parallel blocks throughout the entire network, we strategically apply parallelization only to the final block before the fully connected layer. This design choice: (1) maintains efficient feature extraction in earlier layers where general features are learned (2) allows specialization at higher layers where class-specific features become more important (3) creates a more parameter-efficient architecture compared to full network parallelization.
+
+Each parallel block can thus develop unique feature extractors specifically optimized for its assigned class, resulting in more distinctive and informative saliency maps for each class.
+
+
+
+\subsection{Functionality Loss}
+\label{m2}
+
+To maximize the distinction between true and false class activations in our Interpretable Class Parallelism (ICP) architecture, we introduce a novel loss function called Functionality Loss. This loss function serves two purposes: (1) enhancing the activation of saliency maps for true classes, and (2) suppressing the activation of saliency maps for false classes.
+
+The Functionality Loss operates by comparing saliency maps generated from each parallel block with respect to their corresponding class labels. For each pixel position (i, j) in the image, we compute the ratio between the false class saliency values (numerator) and the true class saliency values (denominator). This ratio is then summed across all pixel positions to form the complete loss, as formulated in Eq.\ref{eq4} :
+
+
+\begin{equation}
+    \begin{split}
+        \mathcal{L}_{func}
+        = \sum^{H}_{i=1}\sum^{W}_{j=1}\frac
+        {\mathcal{S}^{F}_{ij}}
+        {\mathcal{S}^{T}_{ij}+\mathcal{S}^{F}_{ij}}
+    \end{split}
+\label{eq4}
+\end{equation}
+
+\begin{equation}
+    \mathcal{L}_{total} = \mathcal{L}_{BCE}(y, l) + \mathcal{L}_{func}(\mathcal{S}^T, \mathcal{S}^F)
+    \label{eq11}
+\end{equation}
+
+In Eq. \ref{eq4}, $H$ and $W$ are the height and width of the input image, respectively, and $i$ and $j$ are the indices of the vertical and horizontal pixels. Overall loss for the training is represented in Eq. \ref{eq11}, where $\mathcal{L}_{BCE}$ indicates the conventional binary-cross-entopy function. In Eq. \ref{eq11}, $y$ is the final logit vector and $l$ is the ground truth label vector.
+
+\subsection{Detailed-CAM (DCAM): Saliency Map for Functionality Loss}
+
+To improve the Functionality Loss, we introduce Detailed-CAM (DCAM), a modified version of Grad-CAM that can be easily applied to both CNNs and Transformers. This modification is motivated by the observation that Grad-CAM often yields weak activation for false class saliency maps, reducing contribution to the loss function. This is problematic because the contribution of false classes to the Functionality Loss becomes minimal when their saliency values approach zero. While weak activation in false classes might seem desirable, our Functionality Loss specifically requires meaningful values from both true and false classes to minimize their ratio effectively. Therefore, we need a better mechanism to represent these values and suppress them.
+
+Therefore, we modify Grad-CAM to convert negative values into positive ones through the Sigmoid activation, which increases overall Functionality Loss values. As a result, we can further minimize the negative values by decreasing the loss value, which is the summation of mapped positive values by the Sigmoid function. To implement this, we carefully refined the class-discriminative localization map of Grad-CAM in Eq.\ref{eq2}: 
+
+
+    \begin{equation}
+        \underbrace{
+            \frac{1}{Z}\sum_{i}\sum_{j}\frac{\partial y_c}{\partial A^{k}_{ij}}
+        }_{\alpha_{k,\text{Grad-CAM}}}
+        \rightarrow
+        \underbrace{
+            \sigma\bigg(\frac{1}{Z}\sum_{i}\sum_{j}\frac{\partial y_c}{\partial A^{k}_{ij}}\bigg)
+        }_{\alpha_{k,\text{DCAM}}}
+    \label{eq2}
+    \end{equation}
+
+To implement these modifications, we first adjust the gradient weights. In Eq. \ref{eq2}, we scale the global average pooling results to the range [0, 1] using the sigmoid function, $\sigma$, to over-represent small values and aid in their suppression. Here, $A$ represents the activation map, $\sigma$ is the sigmoid function, and $y$ is the score of the $c^{th}$ category. The index $k$ refers to the activation map. This scaling over-represents small values, aiding in their suppression.
+    
+    \begin{equation}
+        \underbrace{
+            \text{ReLU}\bigg(\sum_{k}\alpha_{k,\text{CAM}} * A^{k}\bigg)
+        }_{S_\text{Grad-CAM}}
+        \rightarrow
+        \underbrace{
+            \sigma\bigg(\sum_{k}\alpha_{k,\text{DCAM}} * A^{k}\bigg)
+        }_{S_\text{DCAM}}
+    \label{eq3}
+    \end{equation}
+
+Furthermore, we replace ReLU with the sigmoid function when calculating the final saliency map $S$ (a weighted combination of forward activation maps). This prevents the loss of information of negative values, which helps further suppress them by mapping them to the positive values by leveraging Sigmoid function.
+
+Figure C.3 demonstrates the comparative advantages of DCAM over standard Grad-CAM and partial modifications. Applying Grad-CAM to ICP resulted in weak activations for the false classes’ saliency maps and, in some cases, poor activation for the true classes’ saliency maps. This is problematic because the Functionality Loss relies on the pixel value summation of false classes’ saliency map as a numerator, causing the loss value to approach zero. Applying modifications described in Eq. \ref{eq2} and Eq. \ref{eq3} encourages the activation of positive values in false classes’ saliency maps. As a result, relatively larger pixel values, regardless of positive or negative signs, from the false classes’ saliency map contribute to the increase of Functionality Loss. While each modification individually improves false class activation, they either create insufficient differentiation between true and false classes (Eq. \ref{eq2} alone) or generate excessively strong activation in false classes (Eq. \ref{eq3} alone). Therefore, DCAM achieves an optimal balance by ensuring false classes have meaningful activation values while maintaining sufficient differentiation from true classes. By using DCAM, our model can better leverage the Functionality Loss to improve classification performance and interpretability simultaneously.
+
+
+\subsection{Masking Strategy Through Dual-Network Thresholding}
+\label{m3}
+
+To address the shortcut learning problem, where models often focus on peripheral features rather than diagnostically relevant regions, we propose an input masking strategy that erases the peripheral attributes in the original image. In medical imaging, shortcut learning is a significant problem because it can lead to models that rely on artifacts, background patterns, or other diagnostically irrelevant features to make predictions. To solve this problem, our framework systematically guides the model to focus on critical regions while suppressing irrelevant features. 
+Specifically, we incorporate the activeness of the saliency map as a guiding factor. In the first Stage, the model is trained with the ICP and Functionality Loss until the model converges. In the second Stage, we leverage the trained model from the first Stage to introduce a dual-model framework. Specifically, we duplicate the trained model in the first Stage and freeze one of the copies while keeping the other trainable.
+
+The procedure for preparing masked images is as follows. First, input images are fed into the frozen model to generate saliency maps. These saliency maps are then used to generate masks by thresholding saliency maps. The formulation to obtain the mask is given by:
+
+\begin{equation}
+    M_{ij} = \begin{cases} 
+1 & \text{if } \mathcal{S}_{ij}^T \geq \tau \\
+\psi & \text{otherwise}
+\label{eq6}
+\end{cases}
+\end{equation}
+
+$M$ is the mask and $i, j$ represents the horizontal and vertical indices of pixels. $\tau$ is the thresholding hyperparameter which is determined empirically. Then, using this mask, we obtain masked input images. $\psi$ is the masking hyperparameter which decrease the intensity of a pixel.
+
+\begin{equation}
+    x'_{ij} = x_{ij} * M_{ij}
+    \label{eq7}
+\end{equation}
+
+$x$ is original input image and $x'$ is the resulting masked image.
+
+Next, by providing masked image x’ and original image x into the trainable model, we obtain two logit vectors and two sets of true and false saliency maps, $S^{MT}$, $S^{OT}$, $S^{OF}$, $S^{TF}$. $O$ indicates original input and $M$ indicates masked input. Therefore, $S^{MT}$ and $S^{OT}$ are the saliency maps for true classes from masked and original images respectively. $S^{OF}$ and $S^{TF}$ are the saliency maps for false classes from original and masked images, respectively. $W$ and $H$ represent the width and height of the saliency maps.
+
+\subsection{Boost loss}
+\label{m4}
+
+Medical image classification models often suffer from overfitting when focusing on peripheral features rather than diagnostically relevant regions \cite{45, 46}. For example, models may incorrectly learn to rely on hospital markers, text annotations, or background patterns in chest X-rays instead of actual lung pathology \cite{47,15}. For example, in the planar chest X-ray taken for the lung disease diagnosis, trained models sometimes rely on unnecessary information outside of the lung. To address this problem, we introduce boost loss, which helps the trainable model focus on essential attributes, such as the lung, rather than the peripheral attributes like diaphragm and abdomen.  
+
+The Boost loss is calculated using two sets of logits and saliency maps for true and false classes, which are generated by sequentially inputting the original and masked input images into the trainable model. The boost loss consists of two components. The first component (Eq. \ref{eq9}) leverages logits $z$ before the sigmoid function, aiming to minimize the distances between logits from masked and original inputs.
+
+
+\begin{equation}
+    \frac{1}{C} \sum_{i=1}^C |z^O_i - z^M_i| 
+    \label{eq9}
+\end{equation}
+
+Here, $i$ is the index of classes, and $C$ is the total number of classes. $z^M$ serves as a reference. Because $z^M$ is derived from the masked image $x'$ in which peripheral attributes have been removed, it is primarily influenced by critical information. In contrast, $z^O$ is generated from the original image $x$, meaning the model can also refer to the clues in the peripheral attributes weakly correlated to the disease information. By reducing the distance between $z^O$ and $z^M$, we can guide the model to make similar decisions for both the original and masked input images, ensuring that the classification relies on the essential features rather than irrelevant ones. 
+
+This part encourages consistency between predictions made from original and masked images Specifically, this component functions as a regularization term that guides the model to reach similar decisions regardless of whether peripheral regions are visible. Since the masked input $x'$ preserves only the critical regions identified by the teacher model's saliency maps, the corresponding logits ($z^M$) are primarily influenced by diagnostically relevant features. By minimizing the difference between $z^O$ and $z^M$, we encourage the model to base its predictions on these same critical features even when peripheral regions are visible in the original image.
+
+The second component (Eq. \ref{eq10}) is related to the true and false classes’ saliency maps obtained using original and masked input images. This component fosters true classes’ saliency map from original input image to be more activated compared to the saliency map from masked input image while suppressing the false classes’ saliency map from original input image. This is because the loss function uses the saliency map of true classes from the masked image as the numerator, while the saliency map from the original image serves as the denominator; the reverse is applied for false classes. To minimize the overall loss, the network generates more intensely activated saliency maps for true classes and weaker activations for false classes when processing the unmasked image. This ensures higher activation of critical regions in the true classes’ saliency maps while reducing reliance on misleading irrelevant and peripheral attributes.
+
+
+\begin{equation}
+    \frac{\sum_{i=1}^W \sum_{j=1}^H \mathcal{S}_{ij}^{MT}}{\sum_{i=1}^W\sum_{j=1}^H \mathcal{S}_{ij}^{OT}} + \frac{\sum_{i=1}^W \sum_{j=1}^H \mathcal{S}_{ij}^{OF}}{\sum_{i=1}^W \sum_{j=1}^H \mathcal{S}_{ij}^{TF}}
+    \label{eq10}
+\end{equation}
+
+Overall, the entire formulation of Boost Loss is as follows.
+
+\begin{equation}
+    \mathcal{L}_{boost} = \gamma * \frac{1}{C} \sum_{i=1}^C |z^O_i - z^M_i| + \beta * (\frac{\sum_{i=1}^W \sum_{j=1}^H \mathcal{S}_{ij}^{MT}}{\sum_{i=1}^W\sum_{j=1}^H \mathcal{S}_{ij}^{OT}} + \frac{\sum_{i=1}^W \sum_{j=1}^H \mathcal{S}_{ij}^{OF}}{\sum_{i=1}^W \sum_{j=1}^H \mathcal{S}_{ij}^{TF}})
+\end{equation}
+
+Through hyperparameters $\gamma$ and $\beta$, we can regulate the contribution between the first and second parts. Through the experiments, we found that setting the hyperparameters independently works better rather than making them dependent to each other.
+
+As a result, Boost Loss enhances the distinction between true and false class saliency maps, focusing activation on diagnostically relevant regions while suppressing activation in irrelevant areas. This loss function has clinical significance in that the distinction between diagnostically relevant features and peripheral information is particularly important in medical imaging. For instance, essential features include lung fields, heart silhouette, and specific patterns of opacity that indicate pathology while peripheral features include diaphragm edges, abdominal structures, text annotations, and imaging artifacts. By implementing Boost Loss, we ensure that the model's attention aligns more closely with the diagnostic focus of clinical practitioners. This improves both model performance and interpretability, making the system more trustworthy for clinical applications.
+
+Finally, we train the trainable model with the following loss function in Eq. \ref{eq8}: 
+
+\begin{equation}
+    \mathcal{L}_{total} = \mathcal{L}_{BCE}(y, l) + \mathcal{L}_{boost}(z^O, z^M, \mathcal{S}^{OT}, \mathcal{S}^{OF}, \mathcal{S}^{MT}, \mathcal{S}^{MF})
+    \label{eq8}
+\end{equation}
+
+\subsection{Bounding-box Difference (BD)}
+\label{m5}
+
+While several metrics exist for evaluating classification performance, quantitative measures for assessing interpretability in medical imaging remain limited. \textcolor{red}{Although there is the deletion score \cite{84}, which measures the classification performance after erasing highly activated regions of saliency maps in the original X-ray images, this cannot measure whether the trained model successfully makes the decisions based on by focusing on the critical regions in the X-ray images that include evidence of the diseases.} \textcolor{red}{Additionally,} current saliency map evaluations are \textcolor{red}{qualitative assessment} \textcolor{red}{of the experts}, that are subjective and difficult to \textcolor{red}{clearly} compare \textcolor{red}{its effectiveness across different results}. \textcolor{red}{To mitigate this limitation}, we propose the Bounding Box Difference (BD) metric, designed to objectively quantify how effectively a model focuses on diagnostically relevant regions.
+
+This metric directly corresponds to the interpretability conditions established in Section 3.2, particularly Condition 2, which states that saliency maps for true classes should show stronger activation in critical regions compared to those of false classes.
+
+BD is  designed to measure the extent to which the true classes’ saliency map is more activated in the critical region which is often represented as bounding-boxes in the images,  compared to the false classes’ saliency map. It can provide a quantitative baseline for evaluating model interpretability. Specifically, we obtain saliency maps for both the true and false classes using a chosen method (e.g., Grad-CAM or DCAM). Next, we define a bounding box around the critical region of interest within the image. BD score is calculated by subtracting the sum of all pixel values within the bounding box on false class saliency map from that of the true class saliency map, quantifying how much more activated the true class is compared to the false class in the region of interest:
+
+
+\begin{equation}
+    \frac{\sum_{i=m}^{m+h}\sum_{j=n}^{n+w} (\mathcal{S}_{ij}^T - \mathcal{S}_{ij}^{F})}{h * w} * 100
+\end{equation}
+
+Here, $i$ and $j$ denote the indices of the pixels in the image, while $m$ and $n$ represent the starting indices of the bounding box, and $h$ and $w$ are the height and width of the bounding box, respectively. $\mathcal{S}$ refers to the saliency map. To regulate the scale of BD, we multiplied 100 by the score. The illustration of this procedure is represented in the Figure. \ref{fig:overall}.
+
+Resulting BD score quantifies the relative activation levels between true and false classes within critical regions. Positive BD values represent stronger activation for true classes compared to false classes within the critical region, suggesting good interpretability. BD values near zero indicates similar activation levels for both true and false classes, suggesting poor differentiation and potentially problematic interpretability. Negative BD values can be interpreted as the stronger activation for false classes within the critical region, suggesting severely flawed model attention.
+
+This metric provides a straightforward way to quantitatively evaluate the relative activation levels of true and false class saliency maps, offering insights into the interpretability of the model. Through this metric, we can systematically compare different models and methods’ interpretability in a simple manner. Therefore, this metric can help identify whether the model is attending to appropriate features. However, because it depends on accurate definition of critical regions, it may not fully capture complex attention patterns that extend beyond the defined regions. Despite these limitations, the BD metric serves as a valuable quantitative baseline for evaluating model interpretability in medical imaging tasks, complementing traditional performance metrics and qualitative assessments.
+
+
+\subsection{Theoretical Guarantee}
+
+So far, we introduced several methodologies that increase the gap between true and false classes and a metric to measure this. The theoretical guarantee of the effectiveness of increasing the gap between true and false class is provided in the Appendix \ref{Appendix:D}.
+
+\begin{figure*}
+\begin{center}
+\includegraphics[width=5in, height=3.7in]{Figure4.png}
+\caption{The comparison of saliency maps from Grad-CAM with various model architectures. The numbers represent follows: (1) ResNet18 (2) ResNet18 with $\mathcal{L}_{AS}$ (3) ViT (4) ConvNeXT-Base (5) DenseNet121 (6) EffifientNetB7. The images in the last row are from our proposed methods which are ICP-XL with Stage 2.}
+\label{fig:comparison}
+\end{center}
+\end{figure*}
+
+\begin{figure*}
+\begin{center}    
+\includegraphics[width=3.0in]{figs/NIH_train_distribution.png}
+\includegraphics[width=3.0in]{figs/NIH_test_distribution.png}
+\includegraphics[width=3.0in]{figs/CheXpert_train_test_distribution.png}
+\includegraphics[width=3.0in]{figs/MIMIC_train_test_distribution.png}
+\end{center}
+\caption{The class distributions of all datasets used in this study. Because there are designated training, test dataset in NIH CXR 14, we showed it separately. Regarding CheXpert, and MIMIC-CXR, because we randomly sampled and then randomly split them, we showed the merged training \& and test data distribution.}
+\label{fig:dist}
+\end{figure*}
+
+\section{Experiment}
+\label{sec:results}
+
+We conducted experiments on various large-scale medical X-ray datasets. \textcolor{red}{We compared our proposed methods with the baseline architectures in stage 1, that are DenseNet121, EfficientNetB7, ConvNeXtBase, and Vision Transformer (ViT). And to evaluate the effectiveness of our methods, we compared two scenarios in which, one scenario is to use our proposed stage 2 methods are the other one is that our proposed methods are not.} The detailed explanation of the datasets and experimental details is described in the Appendix \ref{Appendix2}.
+
+\subsection{Datasets}
+We leveraged the large-scale chest X-ray data (NIH ChestX-ray 14 \cite{82}, CheXpert\cite{48}) for the experiment. First of all, NIH ChestX-ray 14 (NIH CXR 14) has 14 disease labels ('Cardiomegaly', 'Emphysema', 'Effusion', 'Hernia', 'Infiltration', 'Mass', 'Nodule', 'Atelectasis', 'Pneumothorax', 'Pleural Thickening', 'Pneumonia', 'Fibrosis', 'Edema', 'Consolidation', 'No Finding'). We leveraged all of them. This dataset consists of only frontal views. It has 86,336 training samples, and 25,596 testing samples. \textcolor{red}{Because this dataset leveraged Natural Language Processing to extract the labels from the clinical report, there is a limitation that this dataset contains erroneous labels.} This dataset has both multi-label class labels and bounding box (B-Boxes) labels. The number of data that have bounding box labels is 984. The B-Boxes labels contain the starting coordinates, width, and height of the bounding box. \textcolor{red}{Regarding the bounding boxes, these are obtained from the board-certified radiologists' manual annotations, using the sampled images and their corresponding disease keywords extracted from the radiological report in the institution's PACS system.} For the data preprocessing, we applied normalization. For the experiment of Stage 1, we used the original training and test dataset while we sampled 10,000 images for the validation \textcolor{red}{among training dataset} for the experiments of Stage 2. \textcolor{red}{This is because this approach was intended to calibrate the decision boundaries using the model’s internal knowledge acquired during Stage 1.}
+
+Second, CheXpert has 224,316 chest radiographs from the 65,240 patients. It consists of frontal and lateral views. This dataset contains 14 disease labels ('Atelectasis', 'Cardiomegaly', 'Consolidation', 'Edema', 'Effusion', 'Pneumonia', 'Pneumothorax', 'Enlarged Cardiomediastinum', 'Fracture', 'Pleural Other', 'Lung Opacity', 'Lung Lesion', 'Support Devices', 'No Finding'). Among them, we excluded some ambiguous labels, which were excluded (“No Finding,” “Support Devices,” “Pleural Effusion,” and “Pleural Other”) following the previous study. We used 86,336 images for training and 22,366 images for the test without validation data for the experiments of Stage 1. For the experiments of Stage 2, we randomly sampled 10,000 images for the validation from the \textcolor{red}{the training} dataset.
+
+Lastly, MIMIC-CXR is composed of 377,110 chest X-ray images from 65,379 patients. Among them, we sampled 100,000 images. This dataset contains 14 disease labels ('Atelectasis', 'Cardiomegaly', 'Consolidation', 'Edema', 'Enlarged Cardiomediastinum', 'Fracture', 'Lung Lesion', 'Lung Opacity', 'No Finding', 'Pleural Effusion', 'Pleural Other', 'Pneumonia', 'Pneumothorax', 'Support Devices'). It also has no bounding box labels. We used 72,000, 8,000, 20,000 images for the training, validation, and test data.
+
+\textcolor{red}{The data distribution of all the NIH CXR 14, CheXpert, and MIMIC-CXR used in this study are shown in the Figure \ref{fig:dist}}.
+
+\subsection{Experiments of Stage 1}
+
+The procedure for the Stage 1 is simply training a model until it converges. Through the experiments, we found that the 20 epochs is the suitable point to stop training. The results of Stage 1 on NIH CXR 14 and CheXpert are shown in Table \ref{tab:1}, \ref{tab:2}. We compared the results of our methods with Attention Separation Loss ($\mathcal{L}_{AS}$) of "Improving Classification with Attention Separation and Consistency (ICASC)" \cite{7} which tried to increase the difference between different classes' saliency maps in multi-calss classification using natural image data. In addition, we also measured the performance of ensembled usage of $\mathcal{L}_{AS}$ and $\mathcal{L}_{func}$. We did not recorded Attention consistency loss in ICASC because it did not achieved meaningful results becuase of the fixed hyperparameters in the loss. Regarding the abbreviations, BD is the Bounding-box difference, DT and DF are the deletion scores with true and false classes. \# Params represents the number of parameters of models. ICP-T, ICP-M, ICP-L, ICP-XL is the implementation of ICP with 1, 128, 256, 512 number of channels. We used three different random seeds for the experiments. Detailed explanation about metrics is in Appendix \ref{Appendix2}.
+
+
+
+\begin{table*}
+    \centering
+    {\resizebox{\textwidth}{!}{
+    \begin{tabular}{c|cc|c|cccc|c}
+        \toprule
+        \multicolumn{9}{c}{\textbf{NIH CXR 14}}\\
+        \midrule
+        \textbf{Method} & $\mathbf{\mathcal{L}_{AS}}$ & $\mathbf{\mathcal{L}_{func}}$& \textbf{\textcolor{magenta}{AUC $\uparrow$}} & \textbf{\textcolor{cyan}{BD $\uparrow$}} & \textbf{\textcolor{cyan}{DT $\uparrow$}}& \textbf{\textcolor{cyan}{DF $\downarrow$}}& \textbf{\textcolor{cyan}{DT - DF $\uparrow$}} & \textbf{\# Params}\\
+        \midrule
+        \rowcolor{Gray}
+        DenseNet121 & X & X & 70.61 $(\pm0.97)$ & 1.17 $(\pm0.85)$ & 0.92 $(\pm0.45)$ & 2.80 $(\pm1.41)$ & -1.75 $(\pm1.75)$ & 7M\\
+        \rowcolor{Gray}
+        EfficientNetB7 & X & X & 68.64 $(\pm0.30)$ & 3.04 $(\pm0.66)$ & \textbf{13.55} $\bm{(\pm2.49)}$ & 4.31 $(\pm0.20)$ & \textbf{9.31} $\bm{(\pm2.62)}$ & 63M\\
+        \rowcolor{Gray}
+        ConvNeXtBase & X & X & 59.76 $(\pm0.33)$ & -3.34 $(\pm3.34)$ & 6.38 $(\pm0.41)$ & 0.70 $(\pm0.25)$ & 5.54 $(\pm0.55)$ & 87M\\
+        \rowcolor{Gray}
+        ViT & X & X & 66.54 $(\pm1.05)$ & 0.00 $(\pm0.00)$ & 13.44 $(\pm0.78)$ & 13.44 $(\pm0.78)$ & 0.00 $(\pm0.00)$ &  85M\\
+        \rowcolor{Gray}
+        ResNet18 & X & X & 66.59 $(\pm0.16)$ & -24.64 $(\pm0.17)$ & 8.64 $(\pm0.97)$ & 6.61 $(\pm0.67)$ & 2.06 $(\pm1.61)$ & 11M\\
+        \rowcolor{Gray}
+        ResNet18 & O & X & 67.91 $(\pm0.23)$ & -19.10 $(\pm 2.10)$& 5.74$(\pm0.05)$& 1.79 $(\pm1.71)$& 3.95 $(\pm1.77)$ & 11M\\
+        \midrule
+        ResNet18 & X & O & 66.97 $(\pm0.25)$ & 2.03 $(\pm 0.45)$& 8.25 $(\pm0.14)$& 6.63 $(\pm0.76)$& 1.62 $(\pm0.62)$ & 11M\\
+        ResNet18 & O & O & 66.86 $(\pm0.60)$ & 3.20 $(\pm0.61)$&3.59 $(\pm0.56)$& 0.11 $(\pm0.02)$& 3.48 $(\pm0.54)$ & 11M\\
+        \midrule
+        ICP-T & X & X & 68.88 $(\pm0.21)$& 2.51 $(\pm2.24)$& 0.26 $(\pm0.23)$& 0.01 $(\pm0.01)$& 0.26 $(\pm0.23)$ & 11M\\
+        ICP-T & O & X & 69.52 $(\pm 0.69)$ & 3.25 $(\pm2.82)$& 0.18 $(\pm0.06)$& 0.00 $(\pm0.02)$& 0.19 $(\pm0.05)$ & 11M\\
+        ICP-T & X & O & 69.55 $(\pm0.86)$ & 8.69 $(\pm6.79)$ & 1.57 $(\pm1.24)$& \textbf{0.00} $\bm{(\pm0.00)}$& 1.56 $(\pm1.24)$ & 11M\\
+        ICP-T & O & O & 65.69 $(\pm1.99)$& 16.78 $(\pm1.83)$& 2.30 $(\pm0.06)$& 0.07 $(\pm0.07)$& 2.26 $(\pm0.04)$ & 11M\\
+        \midrule
+        ICP-M & X & X & 71.86 $(\pm0.99)$ & 8.92 $(\pm6.26)$ & 2.69 $(\pm1.17)$& \textbf{0.00} $\bm{(\pm0.00)}$ & 2.69 $(\pm1.17)$& 21M\\
+        ICP-M & O & X & 72.56 $(\pm0.83)$& 1.87 $(\pm0.88)$& 0.79 $(\pm0.51)$& \textbf{0.00} $\bm{(\pm0.00)}$ & 0.79 $(\pm0.51)$ & 21M\\
+        ICP-M & X & O & 74.38 $(\pm0.88)$ & 16.59 $(\pm1.52)$ & 5.75 $(\pm0.45)$& \textbf{0.00} $\bm{(\pm0.00)}$ & 5.75 $(\pm0.45)$ & 21M\\
+        ICP-M & O & O & 72.69$(\pm1.27)$& 3.17 $(\pm1.47)$& 0.33 $(\pm0.32)$& \textbf{0.00} $\bm{(\pm0.00)}$ & 0.33 $(\pm0.32)$ & 21M\\
+        \midrule
+        ICP-L & X & X & 71.03 $(\pm1.02)$ & 3.91 $(\pm3.58)$ & 1.34 $(\pm1.03)$& \textbf{0.00} $\bm{(\pm0.00)}$ & 1.34 $(\pm1.03)$ & 45M\\
+        ICP-L & O & X & 73.64 $(\pm0.72)$& 0.53 $(\pm0.14)$& 0.23 $(\pm0.13)$& \textbf{0.00} $\bm{(\pm0.00)}$ & 0.23 $(\pm0.13)$ & 45M\\
+        \rowcolor{LemonChiffon1}
+        ICP-L & X & O & 74.38 $(\pm0.16)$ & 16.10 $(\pm1.22)$ & 5.46  $(\pm0.70)$& 0.03 $(\pm0.02)$& 5.43 $(\pm0.72)$ & 45M\\
+        ICP-L & O & O & 73.66 $(\pm 0.25)$& 2.66 $(\pm1.84)$& 0.25 $(\pm0.13)$& \textbf{0.00} $\bm{(\pm0.00)}$ & 0.25 $(\pm0.13)$ & 45M\\
+        \midrule
+        ICP-XL & X & X & 72.89 $(\pm1.03)$& 1.87 $(\pm1.44)$ & 1.80 $(\pm1.13)$& \textbf{0.00} $\bm{(\pm0.00)}$ & 1.80 $(\pm1.13)$ & 128M\\
+        ICP-XL & O & X & 73.91 $(\pm0.36)$& 1.04 $(\pm0.54)$ & 0.14 $(\pm0.05)$& \textbf{0.00} $\bm{(\pm0.00)}$ & 0.14 $(\pm0.05)$ & 128M\\
+        ICP-XL & X & O & \textbf{74.64 $\bm{(\pm0.76)}$} & \textbf{17.88 $\bm{(\pm1.69)}$} & 6.84 $(\pm0.39)$& 0.02 $(\pm0.02)$ & 6.83 $\bm(\pm0.37)$ & 128M\\
+        ICP-XL & O & O & 73.78 $(\pm0.62)$& 2.69 $(\pm0.73)$& 0.44 $(\pm0.33)$& \textbf{0.00} $\bm{(\pm0.00)}$ & 0.44 $(\pm0.33)$ & 128M\\
+        \bottomrule
+    \end{tabular}
+    }}
+    \caption{Stage 1 results on NIH CXR 14 dataset. Gray rows indicate baselines without applying our methods while white rows represent the various implementations of our methods. Pink-colored column represents performance, and blue columns correspond to interpretability.}
+    \label{tab:1}
+\end{table*}
+
+\subsubsection{NIH CXR 14}
+
+Table \ref{tab:1} shows the results of various metrics on NIH CXR 14 dataset. It is notable that by leveraging ICP, the Deletion (F) became almost zero. This meas that by using ICP, we can effectively discern the true and false classes. In addition, by implementing ICP and Functionality Loss, the performance and interpretability both increased which is regarded as challenging. In particular, when we used ICP with 512 channels with Functionality Loss, it recorded highest results. It is also noteworthy that when we used ICP-M with Functionality Loss, although it could not achieve best result, it recorded second-best peformance and interpretability. Regarding the number of parameter, using ICP-M with Functionality Loss can be the affordable better choice because the results' gap is not large.
+
+\begin{table*}
+    \centering
+    \resizebox{\textwidth}{!}{\begin{tabular}{c|cc|c|ccc|c}
+        \toprule
+        \multicolumn{8}{c}{\textbf{CheXpert}}\\
+        \midrule
+        \textbf{Method} & $\mathbf{\mathcal{L}_{AS}}$ & $\mathbf{\mathcal{L}_{func}}$ & \textbf{\textcolor{magenta}{AUC $\uparrow$}} & \textbf{\textcolor{cyan}{DT $\uparrow$}}& \textbf{\textcolor{cyan}{DF $\downarrow$}}& \textbf{\textcolor{cyan}{DT - DF $\uparrow$}} & \textbf{\# Params}\\
+        \midrule
+        \rowcolor{Gray}
+        DenseNet121 & X & X & 66.43 $(\pm0.63)$ & 2.67 $(\pm1.11)$& 1.07 $(\pm0.22)$& 1.73 ($\pm 1.21$) & 7M\\
+        \rowcolor{Gray}
+        EfficientNetB7 & X & X & 66.79 $(\pm0.09)$ & 6.99 $(\pm0.49)$ & 1.15 $(\pm0.19)$& 5.78 $(\pm0.35)$& 63M\\
+        \rowcolor{Gray}
+        ConvNeXtBase & X & X & 60.93 $(\pm1.03)$ & 6.51 $(\pm5.26)$ & 2.38 $(\pm1.66)$ & 4.04 $(\pm3.68)$ & 87M\\
+        \rowcolor{Gray}
+        ViT & X & X & 64.18 $(\pm0.09)$ & 10.96 $(\pm1.22)$ & 10.96 $(\pm1.22)$ & 0.00 $(\pm0.00)$ & 85M\\
+        \rowcolor{Gray}
+        ResNet18 & X & X & 64.01 $(\pm0.15)$ & 8.72 $(\pm0.28)$ & -1.01 $(\pm1.42)$ & 11.28 $(\pm0.57)$ & 11M\\
+        \rowcolor{Gray}
+        ResNet18 & O & X & 64.69 $(\pm1.42)$ & 6.87 $(\pm0.86)$ & \textbf{-2.55} $\bm{(\pm0.85)}$ & 9.62 $(\pm1.51)$ & 11M\\
+        \midrule
+        ResNet18 & X & O & 63.71 $(\pm0.28)$ & 8.93 $(\pm0.69)$ & -0.02 $(\pm0.10)$ & 11.09 $(\pm0.59)$ & 11M\\
+        ResNet18 & O & O & 63.55 $(\pm0.45)$ & 5.60 $(\pm0.04)$ & -1.32 $(\pm0.12)$ & 6.94 $(\pm0.15)$ & 11M \\
+        \midrule
+        ICP-T & X & X & 65.13 $(\pm0.31)$& 5.08 $(\pm3.09)$& -0.19 $(\pm0.16)$& 5.29 $(\pm3.24)$ & 11M\\
+        ICP-T & O & X & 65.13 $(\pm0.54)$& 6.40 $(\pm3.88)$& -0.47 $(\pm0.42)$& 6.88 $(\pm4.30)$ & 11M\\
+        ICP-T & X & O & 65.10 $(\pm0.84)$& 5.84 $(\pm3.89)$& -0.43 $(\pm0.41)$& 6.28 $(\pm4.31)$ & 11M\\
+        ICP-T & O & O & 65.23 $(\pm0.92)$& 6.76 $(\pm3.63)$& -0.38 $(\pm0.29)$& 7.15 $(\pm3.91)$ & 11M\\
+        \midrule
+        ICP-M & X & X & 68.62 $(\pm0.64)$& 11.96 $(\pm0.36)$& -0.11 $(\pm0.14)$& 12.07 $(\pm0.26)$ & 18M\\
+        ICP-M & O & X & 68.40 $(\pm0.43)$& 11.86 $(\pm0.08)$& -0.19 $(\pm0.20)$& 12.23 $(\pm0.85)$ & 18M\\
+        \rowcolor{LemonChiffon1}
+        ICP-M & X & O & 69.09 $(\pm0.71)$& \textbf{12.22} $\bm{(\pm1.32)}$& -0.11$(\pm0.11)$& \textbf{12.34 }$(\bm{\pm1.21)}$ & 18M\\
+        ICP-M & O & O & 68.13 $ (\pm0.25)$& 11.63 $(\pm1.45)$& 0.19 $(\pm0.31)$& 11.43 $(\pm1.24)$ & 18M\\
+        \midrule
+        ICP-L & X & X & 65.98 $(\pm0.96)$& 3.17 $(\pm2.41)$& -0.14 $(\pm0.02)$& 3.32 $(\pm2.44)$ & 35M\\
+        ICP-L & O & X & 66.48 $(\pm 0.20)$& 1.19 $(\pm0.51)$ & -0.06 $(\pm0.05)$ & 1.27 $(\pm0.52)$ & 35M\\
+        ICP-L & X & O & 67.65 $(\pm1.32)$ & 10.66 $(\pm1.05)$ & -0.42 $(\pm0.36)$ & 11.09 $(\pm1.42)$ & 35M\\
+        ICP-L & O & O & 69.74 $(\pm0.95)$& 2.82 $(\pm1.49)$ & 0.02 $(\pm0.02)$ & 2.79 $(\pm0.16)$ & 35M\\
+        \midrule
+        ICP-XL & X & X & 66.90 $(\pm0.32)$ & 2.15 $(\pm1.65)$& -0.10 $(\pm0.06)$& 2.23 $(\pm1.68)$ & 95M\\
+        ICP-XL & O & X & 68.49 $(\pm1.12)$& 0.40 $(\pm0.08)$ & -0.07 $(\pm0.06)$ & 0.50 $(\pm0.12)$ & 95M\\
+        ICP-XL & X & O & 67.34 $(\pm0.57)$ & 9.03 $(\pm0.68)$ & -0.67 $(\pm0.44)$ & 9.85 $(\pm0.95)$ & 95M\\
+        ICP-XL & O & O & \textbf{70.17} $\bm{(\pm0.89)}$ & 3.72 $(\pm0.85)$ & -0.10 $(\pm0.09)$ & 3.85 $(\pm0.92)$ & 95M\\
+        \bottomrule
+    \end{tabular}}
+    \caption{Stage 1 result on CheXpert dataset. Gray rows indicate the baselines without applying our methods while white rows represent the various implementations of our methods. Pink-colored columns represent performance, and the blue columns correspond to interpretability.}
+    \label{tab:2}
+\end{table*}
+
+% 실험 부분에서 시영선배님의 조언을 따라 다양한 로스를 적용 해서 해 보았고, 기본 모델에 로스를 적용한 부분도 해 보았습니다.
+
+% \begin{table*}
+%     \centering
+%     \resizebox{\textwidth}{!}{\begin{tabular}{ccccc}
+%         \toprule
+%         \multicolumn{5}{c}{\textbf{VinBigData}}\\
+%         \midrule
+%         \textbf{Method} & \textbf{AUC $\uparrow$} & \textbf{Deletion (T) $\uparrow$}& \textbf{Deletion (F) $\downarrow$}& \textbf{Deletion (T) - Deletion (F) $\uparrow$}\\
+%         \midrule
+%         ResNet18 &  $(\pm)$ & $(\pm)$ & $(\pm)$ &  $(\pm)$\\
+%         ResNet18 + $\mathcal{L}_{AS}$ &  $(\pm)$ & $(\pm)$ &  $(\pm)$ &  $(\pm)$ \\
+%         ResNet18 + $\mathcal{L}_{AS}$ + $\mathcal{L}_{AC}$ &  $(\pm)$ &  $(\pm)$ &  $(\pm)$ &  $(\pm)$\\
+%         \midrule
+%         ResNet18 + $\mathcal{L}_{func}$ &  $(\pm)$ &  $(\pm)$ &  $(\pm)$ &  $(\pm)$\\
+%         ResNet18 + $\mathcal{L}_{AS}$ + $\mathcal{L}_{func}$ &  $(\pm)$ &  $(\pm)$ &  $(\pm)$ & $(\pm)$ \\
+%         ICP-T & $(\pm)$ & $(\pm)$ & $(\pm)$ & $(\pm)$ \\
+%         ICP-M & $(\pm)$ & $(\pm)$ & $(\pm)$ & $(\pm)$ \\
+%         ICP-L &  $(\pm)$ &  $(\pm)$ &  $(\pm)$ &  $(\pm)$ \\
+%         ICP-XL &  $(\pm)$ &  $(\pm)$ &  $(\pm)$ &  $(\pm)$ \\
+%         ICP-T + $\mathcal{L}_{AS}$ & $(\pm)$ & $(\pm)$ & $(\pm)$ & $(\pm)$ \\
+%         ICP-M + $\mathcal{L}_{AS}$ & $(\pm)$ & $(\pm)$ & $(\pm)$ & $(\pm)$ \\
+%         ICP-L + $\mathcal{L}_{AS}$ &  $(\pm )$ &  $(\pm)$ &  $(\pm)$ &  $(\pm)$ \\
+%         ICP-XL + $\mathcal{L}_{AS}$ &  $(\pm)$ &  $(\pm)$ &  $(\pm)$ &  $(\pm)$ \\
+%         ICP-T + $\mathcal{L}_{AS}$ + $\mathcal{L}_{func}$ & $(\pm)$ & $(\pm)$ & $(\pm)$ & $(\pm)$\\
+%         ICP-M + $\mathcal{L}_{AS}$ + $\mathcal{L}_{func}$ & $(\pm)$ & $(\pm)$ & $(\pm)$ & $(\pm)$ \\
+%         ICP-L + $\mathcal{L}_{AS}$ + $\mathcal{L}_{func}$ & $(\pm)$ &  $(\pm$ &  $(\pm)$ &  $(\pm)$ \\
+%         ICP-XL + $\mathcal{L}_{AS}$ + $\mathcal{L}_{func}$ & $\bm{(\pm)}$ &  $(\pm)$ &  $(\pm)$ &  $(\pm)$ \\
+%         ICP-T + $\mathcal{L}_{func}$ & $\bm{(\pm)}$ & $\bm{(\pm)}$ & $\bm{(\pm)}$ & $\bm{(\pm)}$ \\
+%         ICP-M + $\mathcal{L}_{func}$ & $(\pm)$ & $(\pm)$ & $(\pm)$ & $(\pm)$ \\
+%         ICP-L + $\mathcal{L}_{func}$ &  $(\pm)$ &  $(\pm)$ &  $(\pm)$ &  $(\pm)$ \\
+%         ICP-XL + $\mathcal{L}_{func}$ &  $(\pm)$ &  $(\pm)$ &  $(\pm)$ &  $(\pm)$ \\
+%         \bottomrule
+%     \end{tabular}}
+%     \caption{Result comparison of CheXpert dataset. The number of epochs is 20. We classified images with 10 diseases.}
+%     \label{tab:2}
+% \end{table*}
+
+\subsubsection{CheXpert}
+
+% \begin{table*}
+%     \centering
+%     \resizebox{\textwidth}{!}{\begin{tabular}{ccccc}
+%         \toprule
+%         \multicolumn{5}{c}{\textbf{CheXpert}}\\
+%         \midrule
+%         \textbf{Method} & \textbf{AUC $\uparrow$} & \textbf{Deletion (T) $\uparrow$}& \textbf{Deletion (F) $\downarrow$}& \textbf{Deletion (T) - Deletion (F) $\uparrow$}\\
+%         \midrule
+%         ResNet18 & 63.38 & 0.4 & 0.4 & 0\\
+%         \midrule
+%         ICP-T & 64.53 & 16.51 & 7.10 & 9.41 \\
+%         ICP-M & 65.09 & 4.79 & 6.14 & -1.35\\
+%         ICP-L & 65.29 & 5.04 & 6.80 & -1.76 \\
+%         ICP-T + Functionality Loss & 66.19 & 15.37 & -0.33 & 15.7\\
+%         ICP-M + Functionality Loss & 67.34 & 13.49 & -1.99 & 15.48\\
+%         ICP-L + Functionality Loss & 66.82 & 13.74 & -1.71 & 15.45\\
+%         \bottomrule
+%     \end{tabular}}
+%     \caption{Result comparison of CheXpert dataset. The number of epochs is 20. We classified images with 10 diseases.}
+%     \label{tab:1}
+% \end{table*}
+
+Table \ref{tab:2} also shows the results of our proposed methodologies on CeXpert dataset. The methods that we employed to compare are the same with the NIH CXR 14. As shown in this table, we can see that our method achieved SOTA performance in terms of AUC. Although the deletion score of the false classes was the heighest in the ResNet18 with attention separation loss, the gap between true and false classes' deletion score was the heighest in our proposed method. It is quite notable that the ICP-M and ICP-L resulted similar performance with ICP-XL as in NIH CXR 14. Considering the memory overhead, using ICP-M or ICP-L seems afordable choice rather than the ICP-XL. 
+
+
+\subsection{Experiments of Stage 2}
+
+Table \ref{tab:3} shows the effectiveness of our training schedule on NIH CXR 14 dataset. In the column named "Stage 2" represents whether we applied $\mathcal{L}_{boost}$ in the second Stage instead of $\mathcal{L}_{func}$, $\mathcal{L}_{AS}$. The number of epochs of Stage 1 and 2 is 20 respectively. Applying Stage 2 methods improved AUCs, BD, and Deletion scores in most of the cases. Table \ref{tab:4} also demonstrates the effectiveness of our training schedule on CheXpert dataset. The experimental setup is identical to the experiments on NIH CXR 14. Although the performances are not strongly improved as NIH CXR 14 case, applying Stage 2 methods still improved AUCs and Deletion scores in many cases. These results demonstrate the effectiveness of our methods to increase performance and interoperability. We compared the Grad-CAM results of various baseline architectures and our proposed methods (ICP-XL with Stage 2) in Figure \ref{fig:comparison}.
+
+\begin{table*}
+    \centering {
+    \begin{tabular}{c|c|c|cccc}
+        \toprule
+        \multicolumn{7}{c}{\textbf{NIH CXR 14}}\\
+        \midrule
+        \textbf{Method} & \textbf{Stage 2} & \textbf{\textcolor{magenta}{AUC $\uparrow$}} & \textbf{\textcolor{cyan}{BD}} & \textbf{\textcolor{cyan}{DT $\uparrow$}} & \textbf{\textcolor{cyan}{DF $\downarrow$}}& \textbf{\textcolor{cyan}{DT - DF $\uparrow$}}\\
+        \midrule
+        \rowcolor{Gray}
+        ICP-T & X & 65.47 & 14.72 & 1.25 & 0.00 & 1.25\\
+        ICP-T & O & 67.91 & 13.89 & 2.01 & 0.00 & 2.01 \\
+        \midrule
+        \rowcolor{Gray}
+        ICP-M & X & 73.85 & 10.57 & 3.22 & 0.00 & 3.22\\
+        ICP-M & O & 75.30 & 21.64 & 4.38 & 0.00 & 4.37\\
+        \midrule
+        \rowcolor{Gray}
+        ICP-L & X & 74.11 & 20.22 & 7.54 & 0.11 & 7.42\\
+        ICP-L & O & 74.43 & 18.68 & 13.87 & -0.04 & 13.91\\
+        \midrule
+        \rowcolor{Gray}
+         ICP-XL & X & 74.05 & 11.49 & 4.72 & 0.10 & 4.61\\
+        ICP-XL & O & 75.64 & 20.12 & 3.94 & 0.13 & 3.80\\
+        \bottomrule
+    \end{tabular}}
+    \caption{Results of scheduled training on NIH CXR 14 dataset. We compared the performance of the models with and without applying Boost loss for Sage 2.}
+    \label{tab:3}
+\end{table*}
+
+\begin{table*}
+    \centering {
+    \begin{tabular}{c|c|c|ccc}
+        \toprule
+        \multicolumn{6}{c}{\textbf{CheXpert}}\\
+        \midrule
+        \textbf{Method} & \textbf{Stage 2} & \textbf{\textcolor{magenta}{AUC $\uparrow$}} & \textbf{\textcolor{cyan}{DT $\uparrow$}}& \textbf{\textcolor{cyan}{DF $\downarrow$}}& \textbf{\textcolor{cyan}{DT - DF $\uparrow$}}\\
+        \midrule
+        \rowcolor{Gray}
+        ICP-T & X &  68.06 & 1.20 & 0.00 & 1.20 \\
+        ICP-T & O & 66.16 & 3.31 & -0.06 & 3.38\\
+        \midrule
+        \rowcolor{Gray}
+        ICP-M & X & 71.29 & 9.54 & -0.03 & 9.58\\
+        ICP-M & O & 74.13 & 5.25 & 0.12 & 5.38\\
+        \midrule
+        \rowcolor{Gray}
+        ICP-L & X & 72.51 & 7.84 & -0.01 & 7.85\\
+        ICP-L & O & 72.86 & 2.09 & -0.04 & 2.14 \\
+        \midrule
+        \rowcolor{Gray}
+         ICP-XL & X & 71.85 & 4.47 & 0.47 & 4.00\\
+        ICP-XL & O & 74.18 & 4.67 & -0.37 & 5.05 \\
+        \bottomrule
+    \end{tabular}}
+    \caption{Result of scheduled training on CheXpert dataset. We compared the performance of the models with and without applying Boost loss for Stage 2 as Table \ref{tab:3}.}
+    \label{tab:4}
+\end{table*}
+
+
+
+\section{Discussion}
+\textcolor{red}{
+In this work, we challenged the prevailing assumption that performance and interpretability in AI-assisted diagnostics are conflicting objectives, demonstrating that they can be systematically and simultaneously enhanced. Our proposed framework provides a robust solution to two primary failure modes in contemporary CAD systems: insufficient saliency differentiation and shortcut learning. By architecturally decoupling class-specific feature extraction via Interpretable Class Parallelism (ICP) and explicitly guiding the model's focus with novel loss functions, we have established a scalable path toward developing more reliable and clinically aligned diagnostic models.}
+
+\textcolor{red}{The variable performance of Stage 2 in certain cases stems from its reliance on the quality of saliency maps generated in Stage 1. Since Boost Loss depends on interpretable masked images, suboptimal saliency maps may degrade performance despite our improvements. This highlights a key contribution of our work: by linking interpretability to training efficacy, we reveal how explanation quality directly impacts downstream learning, offering a principled way to integrate interpretability into model optimization.}
+
+\textcolor{red}{Our method faces limitations in generalizability across diverse clinical settings due to variations in imaging protocols and patient populations. While the BD metric provides a structured way to quantify interpretability, it depends on accurately defined critical regions and may not capture all clinically meaningful attention patterns. Nonetheless, our improvements in interpretability contribute to enhanced transparency, which can foster clinician trust and aid in error detection—though human oversight remains essential in all medical AI applications.}
+
+\textcolor{red}{Future research should explore the development of inherently interpretable network architectures that minimize reliance on multi-stage or auxiliary training procedures. Additionally, there is a need for more comprehensive evaluation metrics that can capture multiple dimensions of interpretability, including clinical relevance, spatial coherence, and user trust. Advancements in domain adaptation techniques tailored to the variability in medical imaging across institutions will further support model robustness. Addressing these challenges will be essential for advancing computer-aided diagnosis (CAD) systems that are not only accurate but also interpretable, trustworthy, and practically useful in real-world clinical settings.
+}
+
+
+\section{Conclusion}
+
+This work has successfully addressed the challenge of simultaneously improving both performance and interpretability in medical image classification, often considered an implausible goal. We have made several key contributions to this field. First, we redefined true and false classes specifically for multi-label scenarios common in medical diagnostics, providing a clear conceptual framework for interpretability analysis. Second, we introduced the Interpretable Class Parallelism (ICP) architecture that enables the generation of distinct class-specific saliency maps, significantly enhancing the differentiation between true and false classes. Third, our Functionality Loss effectively guides models to focus on diagnostically relevant features while suppressing irrelevant ones. Fourth, we developed Detailed-CAM (DCAM), which improves upon traditional Grad-CAM by better representing activation values in saliency maps. Fifth, our two-Stage training framework with Boost Loss effectively mitigates shortcut learning, leading to both improved classification performance and enhanced interpretability. Finally, we proposed the Bounding Box Difference (BD) metric that provides a quantitative assessment of interpretability, enabling objective comparison across different methods.
+
+Our experimental results on multiple chest X-ray datasets demonstrated consistent improvements in both AUC and interpretability measures compared to baseline approaches.  Our method increases by about 4\% of AUC, 2\% of BD is Stage 1. Although our method did not consistently improve deletion scores, there were a lot of cases that resulted in meaningful deletion scores, increasing other metrics. In Stage 2, AUC also improved about 2-5\%, BD up to 10\% with decent deletion scores. Importantly, our methods are not limited to CNNs but can also be successfully applied to Transformer-based architectures, enabling broad adaptability across diverse deep learning models. These contributions collectively set a foundation for more scalable and reliable medical AI systems that can be effectively utilized in resource-constrained clinical environments, where both accuracy and explanation of diagnostic decisions are crucial. Future work will focus on further enhancing the generalizability of these frameworks across different medical imaging modalities and clinical settings.
+
+\bibliographystyle{unsrt}
+\bibliography{Reference}
+
+\newpage
+
+\appendix
+\addcontentsline{toc}{section}{Appendix}
+\section*{Appendix}
+
+% \section{Comparative Analysis of Saliency Maps from CNN and Attention Maps from Transformer in Medical Diagnostics}
+
+% Although Transformer-based models display powerful performances compared to CNNs especially in large datasets, regarding the interpretability, we should carefully analyze both models. In this context, \textit{until now}, the trustworthiness of the saliency maps generated by CNNs can be slightly more advantageous over Transformers, especially in clinical environments for the several reasons. 
+
+% One of the benefits of CNN-based saliency maps is their intuitiveness and interpretability. Saliency maps of CNNs are designed to focus on local features that are critical for diagnosis. This is particularly important in medical imaging, where identifying areas of pathology, such as a tumor or lesion, can directly inform clinical decision-making. In contrast, attention maps from the Transformer models show patch-level relationships capturing global dependencies rather than sharp regions that are critical to the final decision. 
+
+% Furthermore, CNN saliency maps produce more focused and localized explanations that align well with how radiologists and clinicians interpret medical images. In contrast, highly activated patches in Transformer-based attention maps do not have to be critical evidence for the classification results. This makes it challenging for clinicians to interpret the relevance of attention maps in a diagnostic context. Therefore, in cases where precise localization of abnormalities is essential, such as detecting small nodules in a lung X-ray, CNNs offer a distinct advantage.
+
+% Additionally, in CNNs, saliency maps can differ significantly even when class scores are identical, due to the spatial independence and localized feature extraction of convolutional filters. In contrast, Transformers rely on global self-attention mechanisms, where identical class scores often result in similar attention distributions, leading to nearly identical saliency maps. This difference arises from the lack of spatial dependency and the linearity of attention computations in Transformers, making them less sensitive to localized variations. 
+
+\section{Related works}
+
+\textbf{Interpretable AI (XAI).} When applying deep learning models in the real-world dataset, the implausibility of evidence for decision is often considered a barrier in many fields. For example, in the medical domain, conventional deep learning approaches are criticized because of their instability and implausibility \cite{15, 16}. Because the wrong diagnosis can lead to catastrophic results, deep learning models with high explainability and performance are in demand \cite{12,13,14}. In computer vision, therefore, saliency methods are widely adopted \cite{22,23,24,25,26,27,28,29,30}, especially in the medical domain \cite{19,20,21} to leverage its interpretability. 
+
+To make better saliency maps, several methods \cite{5,6,7} are proposed to optimize pioneering work \cite{4,1,2}.  However, these works are post-hoc mechanisms that do not focus on the training procedure itself. These works regard the reason for low-quality saliency maps as the explaining tool itself. \textit{However, is the low-quality saliency map the result of poor training or a bad explaining tool?}  For this question, we answer that the low-quality saliency maps indicate poor training procedures. 
+
+To deal with this problem, there is an approach\cite{8} that disentangled features so that they can be fed into multiple neural networks respectively. However, this approach was limited to the multi-layer perceptron. As in \cite{8}, with the intent of improving the training procedure itself, we corrected the training procedure by implementing Interpretable Class Parallelism (ICP) rather than fixing the explaining tools.
+
+In addition, there are several metrics for the saliency methods \cite{9, 17, 18}. However, these metrics cannot evaluate the difference in saliency maps between true and false classes and the ability to include the most critical region in the input image. Therefore, we fill the gap by proposing a D-score and Covering Index.
+
+However, previously proposed saliency map tools are designed for the multi-class classification \cite{4,1,2,5,6,7,10}. Because multi-label classification does not have just one single correct label, the saliency map generation mechanism should be re-considered in this task. 
+
+\textbf{Debiased Learning.} When training deep learning models, the model often learns shortcuts \cite{31} to improve its performance. It is because the deep learning model prefers certain attributes to others, such as color or texture \cite{32}. In addition, if the bias is in the dataset, this tendency worsens. For example, when there is a class named bird and most of its data have sky backgrounds, the classification performance of bias-aligned samples in which the background information corresponds to the bias is higher than the bias-conflicting samples which is the opposite of the bias-aligned samples \cite{33}. In the medical domain, there is a case when patients with a particular disease have specific artifacts like hospital labels or tags. Therefore, the model is likely to decide whether the patient has a particular disease by just focusing on those artifacts, not the image data that human experts focus on. However, the deep learning model should decide based on the intrinsic attributes rather than the peripheral attributes. To solve this problem, several works are proposed for the debiased learning \cite{34, 35, 36, 37, 38, 39, 40}.
+
+\section{Implemetation details}
+
+\label{Appendix2}
+
+\textbf{Hyperparameters.} For all experiments, we used binary cross entropy loss (BCE). We did not leverage the learning rate scheduler. To measure BD and deletion scores, we used Grad-CAM for the sharp localization. For the NIH CXR 14 and CheXpert experiments, we set the training setting as follows. We resized the original images to 150 × 150 pixels, and except for the normalization, we did not augment the data. We use SGD optimizer \cite{50} with momentum value 0.9 and weight decay was 0.0001. The learning rate was set to 0.01, and the number of epochs was set to 20. The batch size was set to 32. We multiplied 0.1 by the Functionality Loss in the experiments of NIH CXR 14 with ICP-T. Regarding the ICP, we selected the base model architecture of ICP, which is ResNet18 \cite{49} for the computation and memory efficiencies.  Then we leveraged 1, 128, 256, and 512 channels for the last parallel convolutional blocks of ResNet18, which we called ICP-T, ICP-M, ICP-L, and ICP-XL respectively.  This architecture is represented in Figure \ref{fig:ICP}.
+
+\textbf{Metrics.} For the evaluation metric, we leveraged AUC, BD, and deletion scores. AUC represents the Area Under the Receiver Operating Characteristic Curve and is leveraged to measure the performance. BD and deletion scores are employed to measure interpretability. DT is calculated by subtracting AUC score using the image in which the highly activated regions of the true classes' saliency map are erased from the AUC score using the original input image without any modification. DF is calculated same as DT but leverages false classes' saliency map. As a result, a high DT score means that the model effectively activated the critical region, which strongly impacted the AUC score, and a low DF score means the model did not wrongly capture critical regions as evidence for classifying false classes as true classes. For the threshold, we used 0.7. Therefore, to calculate Deletion scores, the pixels that had a higher intensity than 0.7 were erased and then inputted into the model.
+
+
+
+\section{Additional experimental results}
+
+\subsection{MIMIC dataset}
+
+To further evaluate the proposed Interpretable Class Parallelism (ICP), we conducted experiments using the MIMIC-CXR dataset, a large-scale collection of chest X-ray images commonly used in clinical research. This dataset provided a valuable opportunity to test the robustness and scalability of the ICP model in a realistic clinical setting. The model was trained using the same architecture and methodology applied in previous experiments, with a particular focus on evaluating the benefits of Functionality Loss and Boost Loss in enhancing both the performance and interpretability of the model.
+
+In the experiments of Stage 1 experiments in Tabel \ref{mimic1}, the ICP-M model with Functionality Loss achieved an AUC of 75.04, demonstrating a noticeable improvement compared to baseline models. This result indicates the model’s strong capability in multi-label classification tasks involving medical imagery. Regarding interpretability, several ICP methods also achieved improved 'DT-DF' \textcolor{red}{(the difference between DT and DF)} compared to other models. These results indicates that ICP and Functionality Loss successfully enhanced performances and interoperability.
+
+Regarding the experiments of Stage 2, however, we can see that while our proposed method achieved higher or similar AUCs in ICP-T, ICP-M, and ICP-L, our second method did not successfully improve interpretability-related scores. This result shows that our method is still unstable for generalizing various datasets even though we achieved some enhanced performances in other datasets such as NIH CXR.
+
+\begin{table*}
+    \centering
+    {\resizebox{\textwidth}{!}{
+    \begin{tabular}{c|cc|c|ccc|c}
+        \toprule
+        \multicolumn{8}{c}{\textbf{MIMIC-CXR}}\\
+        \midrule
+        \textbf{Method} & $\mathbf{\mathcal{L}_{AS}}$ & $\mathbf{\mathcal{L}_{func}}$& \textbf{\textcolor{magenta}{AUC $\uparrow$}} & \textbf{\textcolor{cyan}{DT $\uparrow$}}& \textbf{\textcolor{cyan}{DF $\downarrow$}}& \textbf{\textcolor{cyan}{DT - DF $\uparrow$}} & \textbf{\# Params}\\
+        \midrule
+        \rowcolor{Gray}
+        DenseNet121 & X & X & 74.02 $(\pm0.24)$ & 2.42 $(\pm0.76)$ & 1.75 $(\pm0.90)$& 0.42 $(\pm0.49)$ & 7M\\
+        \rowcolor{Gray}
+        EfficientNetB7 & X & X & 74.24 $(\pm0.12)$& 6.51 $(\pm0.85)$ & 2.38 $(\pm0.80)$& 4.10 $(\pm1.05)$ & 63M\\
+        \rowcolor{Gray}
+        ConvNeXtBase & X & X & 70.56 $(\pm0.09)$ & 1.44 $(\pm0.25)$ & 0.75 $(\pm0.18)$& 0.71 $(\pm0.10)$& 87M\\
+        \rowcolor{Gray}
+        ViT & X & X & 71.30 $(\pm0.56)$ & \textbf{14.98} $\bm{(\pm1.11)}$ & 14.98 $(\pm1.11)$ & 0.00 $(\pm0.00)$ &  85M\\
+        \rowcolor{Gray}
+        ResNet18 & X & X & 70.47 $(\pm0.14)$ & 8.88 $(\pm0.26)$ & 7.77 $(\pm0.71)$ & 1.04 $(\pm0.87)$ & 11M\\
+        \rowcolor{Gray}
+        ResNet18 & O & X & 70.98 $(\pm1.11)$ & 6.93 $(\pm0.55)$ & 8.51 $(\pm0.61)$ & -1.12 $(\pm1.12)$ & 11M\\
+        \midrule
+        ResNet18 & X & O & 71.18 $(\pm0.61)$ & 8.85 $(\pm1.01)$ & 7.72 $(\pm0.31)$ & 1.12 $(\pm0.70)$ & 11M\\
+        ResNet18 & O & O & 70.97 $(\pm0.25)$ & 7.49 $(\pm1.63)$ & 7.61 $(\pm0.48)$ & -0.12 $(\pm2.11)$ & 11M\\
+        \midrule
+        ICP-T & X & X & 72.30 $(\pm0.19)$ & 0.69 $(\pm0.09)$ & 0.00 $(\pm0.01)$ & 0.67 $(\pm0.09)$ & 11M\\
+        ICP-T & O & X & 72.55 $(\pm0.40)$ & 0.73 $(\pm0.15)$ & 0.00 $(\pm0.03)$ & 0.73 $(\pm0.19)$ & 11M\\
+        ICP-T & X & O & 72.35 $(\pm0.09)$ & 1.49 $(\pm1.13)$ & 0.02 $(\pm0.04)$ & 1.44 $(\pm1.11)$ & 11M\\
+        ICP-T & O & O & 72.09 $(\pm0.02)$ & 2.50 $(\pm0.37)$ & 0.00 $(\pm0.06)$ & 2.54 $(\pm0.34)$ & 11M\\
+        \midrule
+        ICP-M & X & X & 73.35 $(\pm0.67)$ & 2.98 $(\pm1.52)$ & 0.00 $(\pm0.00)$ & 2.98 $(\pm1.52)$ & 21M\\
+        ICP-M & O & X & 73.34 $(\pm0.16)$ & 0.45 $(\pm0.16)$ & 0.00 $(\pm0.00)$ & 0.45 $(\pm0.16)$ & 21M\\
+        \rowcolor{LemonChiffon1}
+        ICP-M & X & O & \textbf{75.04} $\bm{(\pm0.57)}$ & 11.01 $(\pm1.35)$ & 0.00 $(\pm0.00)$ & 11.01 $(\pm1.35)$ & 21M\\
+        ICP-M & O & O & 73.59 $(\pm0.68)$ & 1.16 $(\pm0.05)$ & -0.01 $(\pm0.01)$ & 1.17 $(\pm0.06)$ & 21M\\
+        \midrule
+        ICP-L & X & X & 73.05 $(\pm0.89)$ & 2.46 $(\pm0.98)$ & 0.00 $(\pm0.00)$ & 2.46 $(\pm0.98)$ & 45M\\
+        ICP-L & O & X & 73.93 $(\pm0.21)$ & 0.71 $(\pm0.41)$ & 0.00 $(\pm0.01)$ & 0.72 $(\pm0.42)$ & 45M\\
+        ICP-L & X & O & 74.97 $(\pm0.80)$ & 11.27 $(\pm0.89)$ & -0.21 $(\pm0.21)$ & 11.49 $(\pm1.11)$ & 45M\\
+        ICP-L & O & O & 73.88 $(\pm0.83)$ & 5.18 $(\pm4.58)$ & -0.04 $(\pm0.04)$ & 5.21 $(\pm4.61)$ & 45M\\
+        \midrule
+        ICP-XL & X & X & 73.68 $(\pm0.12)$ & 0.99 $(\pm0.72)$ & 0.00 $(\pm0.01)$ & 1.00 $(\pm0.72)$ & 128M\\
+        ICP-XL & O & X & 72.50 $(\pm1.20)$ & 0.46 $(\pm0.02)$ & 0.00 $(\pm0.00)$ & 0.45 $(\pm0.02)$ & 128M\\
+        ICP-XL & X & O& 74.62 $(\pm1.00)$ & 11.90 $(\pm1.06)$ & \textbf{-0.33} $\bm{(\pm0.10)}$ & \textbf{12.53} $\bm{(\pm1.15)}$ & 128M\\
+        ICP-XL & O & O & 73.47 $(\pm0.25)$ & 0.48 $(\pm0.20)$ & 0.00 $(\pm0.01)$ & 0.48 $(\pm0.18)$ & 128M\\
+        \bottomrule
+    \end{tabular}
+    }}
+    \caption{Result comparison of MIMIC-CXR dataset. The number of epochs is 20. The gray rows are the baselines without using our methods. The rest of the white rows represent the various implementations of our methods.}
+    \label{mimic1}
+\end{table*}
+
+\begin{table*}
+    \centering {
+    \begin{tabular}{c|c|c|ccc}
+        \toprule
+        \multicolumn{6}{c}{\textbf{MIMIC-CXR}}\\
+        \midrule
+        \textbf{Method} & \textbf{Stage 2} & \textbf{\textcolor{magenta}{AUC $\uparrow$}} & \textbf{\textcolor{cyan}{DT $\uparrow$}}& \textbf{\textcolor{cyan}{DF $\downarrow$}}& \textbf{\textcolor{cyan}{DT - DF $\uparrow$}}\\
+        \midrule
+        \rowcolor{Gray}
+        ICP-T & X & 74.71 & 5.54 & 0.00 & 5.54 \\
+        ICP-T & O & 74.98 & 4.29 & 0.00 & 4.29 \\
+        \midrule
+        \rowcolor{Gray}
+        ICP-M & X & 77.19 & 7.81 & 0.00 & 7.81 \\
+        ICP-M & O & 77.11 & 6.38 & 0.00 & 6.38 \\
+        \midrule
+        \rowcolor{Gray}
+        ICP-L & X & 71.44 & 13.35 & -0.01 & 13.36 \\
+        ICP-L & O & 77.01 & 4.80 & 0.00 & 4.80 \\
+        \midrule
+        \rowcolor{Gray}
+        ICP-XL & X & 77.22 & 13.66 & -0.89 & 14.56 \\
+        ICP-XL & O & 75.98 & 1.82 & 0.00 & 1.82 \\
+        \bottomrule
+    \end{tabular}}
+    \caption{Result comparison of MIMIC-CXR dataset. The number of epochs is 40. We compared the performance of the models with and without a data augmentation strategy. $\tau$ indicates the threshold for the image masking. To the rest of the pixels, we multiplied 0.4. The masking threshold is 0.6.}
+    \label{mimic2}
+\end{table*}
+
+
+
+
+
+% \subsection{The Comparison of the Number of Model Parameters}
+
+% To analyze the efficiency of our proposed methodology, we compared the number of parameters in various models. As shown in Table \ref{tab:1} and Table \ref{tab:2}, the ICP models were implemented with varying channel sizes, specifically ICP-T, ICP-M, ICP-L, and ICP-XL. Their last parallel blocks are composed of 1, 128, 256, 512 channels. While the ICP-XL model generally exhibited superior performances and interpretability, the ICP-M and ICP-L models also delivered competitive results. This comparison highlights that although ICP-XL often achieves the best results, ICP-M and ICP-L offer a good balance between performance and computational efficiency, making them viable options in resource-constrained environments.
+
+\begin{figure*}
+\begin{center}
+\includegraphics[width=5in, height=3.2in]{Figure2.png}
+\caption{The comparison of saliency maps from Grad-CAM with various modifications. The saliency maps for true and false classes were generated using different versions of Grad-CAM on ICP-M.}
+\label{fig:CAM}
+\end{center}
+\end{figure*}
+
+
+
+\subsection{Verification of DCAM}
+
+The DCAM was employed to enhance the interpretability of our model's decision-making process. DCAM is designed to represent activation values of all range rather than focusing on the localization. By using this for the Functionality Loss, we can effectively suppress the false classes' saliency map. The quantitative effectiveness of DCAM was validated through experiments, as summarized in Table \ref{tab:5}. The results indicate that models incorporating DCAM outperformed those without it in ICP-M, ICP-L, ICP-XL, demonstrating superior interpretability and performance. Qualitatively, in Figure \ref{fig:CAM}, we can see that CAM of the various modifications. The Equation \ref{eq:14} - \ref{eq:17} are the formulations used to obtain each rows of saliency maps labeled as A to D. The explanations about variables in these equations are in the Section \ref{sec:Methods}.
+
+\begin{equation}
+\label{eq:14}
+            \frac{1}{Z}\sum_{i}\sum_{j}\frac{\partial y_c}{\partial A^{k}_{ij}}, 
+            \text{ReLU}\bigg(\sum_{k}\alpha_{k,\text{CAM}} * A^{k}\bigg)
+\end{equation}
+
+\begin{equation}
+\label{eq:15}
+            \sigma\bigg(\frac{1}{Z}\sum_{i}\sum_{j}\frac{\partial y_c}{\partial A^{k}_{ij}}\bigg), 
+            \text{ReLU}\bigg(\sum_{k}\alpha_{k,\text{CAM}} * A^{k}\bigg)
+\end{equation}
+
+\begin{equation}
+\label{eq:16}
+            \frac{1}{Z}\sum_{i}\sum_{j}\frac{\partial y_c}{\partial A^{k}_{ij}}, 
+            \sigma\bigg(\sum_{k}\alpha_{k,\text{CAM}} * A^{k}\bigg)
+\end{equation}
+
+\begin{equation}
+\label{eq:17}
+            \sigma\bigg(\frac{1}{Z}\sum_{i}\sum_{j}\frac{\partial y_c}{\partial A^{k}_{ij}}\bigg), 
+            \sigma\bigg(\sum_{k}\alpha_{k,\text{CAM}} * A^{k}\bigg)
+\end{equation}
+
+
+
+Because Grad-CAM erases negative values, we can see that there is no activated value in the false classes. In this case, because the sum of the false classes' saliency map is already small enough, the loss value of the Functionality of becomes zero which is problematic. The third row of the CAM is also problematic because this highlights peripheral attributes randomly rather than critical regions. Second and last rows are suitable for the Functionality Loss because they both activate false classes' saliency map and highlights critical regions. Emperically, we found that the last row (DCAM) results best outcomes. 
+
+\begin{table*}
+    \centering
+    \resizebox{\textwidth}{!}{\begin{tabular}{cc|c|cccc}
+        \toprule
+        \multicolumn{7}{c}{\textbf{NIH CXR 14}}\\
+        \midrule
+        \textbf{Method} & \textbf{CAM} & \textbf{\textcolor{magenta}{AUC $\uparrow$}} & \textbf{\textcolor{cyan}{BD $\uparrow$}} & \textbf{\textcolor{cyan}{DT $\uparrow$}}& \textbf{\textcolor{cyan}{DF $\downarrow$}}& \textbf{\textcolor{cyan}{DT - DF $\uparrow$}}\\
+        \midrule
+        \rowcolor{Gray}
+        ResNet18 & GradCAM & 72.63 $(\pm0.65)$& 2.86 $(\pm0.47)$& 1.41 $(\pm0.45)$& 0.00 $(\pm0.00)$& 1.41 $(\pm0.45)$\\
+        \rowcolor{Gray}
+        ICP-T & GradCAM & 69.13 $(\pm0.57)$& 3.38 $(\pm2.80)$& 0.21 $(\pm0.17)$& 0.01 $(\pm0.01)$ & 0.21 $(\pm0.17)$\\
+        \rowcolor{Gray}
+        ICP-M & GradCAM& 71.94 $(\pm0.67)$& 8.95 $(\pm4.82)$& 3.32 $(\pm0.73)$ & 0.00 $(\pm0.00)$& 3.32 $(\pm0.73)$\\
+        \rowcolor{Gray}
+        ICP-L & GradCAM& 71.46 $(\pm0.16)$& 4.52 $(\pm0.29)$& 3.98 $(\pm1.15)$& 0.00 $(\pm0.00)$& 3.98 $(\pm1.15)$\\
+        \rowcolor{Gray}
+        ICP-XL & GradCAM& 72.08 $(\pm1.30)$ & 2.21 $(\pm1.70)$ & 2.06 $(\pm1.66)$& 0.00 $(\pm0.00)$ & 2.06 $(\pm1.66)$\\
+        \midrule
+         ResNet18 & DCAM& 66.97 $(\pm0.25)$ & 2.03 $(\pm 0.45)$& 8.25 $(\pm0.14)$& 6.63 $(\pm0.76)$& 1.62 $(\pm0.62)$\\
+        ICP-T & DCAM& 69.55 $(\pm0.86)$ & 8.69 $(\pm6.79)$ & 1.57 $(\pm1.24)$& 0.00 $(\pm0.00)$& 1.56 $(\pm1.24)$\\
+        ICP-M & DCAM& 74.38 $(\pm0.88)$ & 16.59 $(\pm1.52)$ & 5.75 $(\pm0.45)$& 0.00 $(\pm0.00)$& 5.75 $(\pm0.45)$\\
+        ICP-L & DCAM& 74.38 $(\pm0.16)$ & 16.10 $(\pm1.22)$ & 5.46  $(\pm0.70)$& 0.03 $(\pm0.02)$& 5.43 $(\pm0.72)$\\
+        ICP-XL & DCAM& \textbf{74.64 $\bm{(\pm0.76)}$} & \textbf{17.88 $\bm{(\pm1.69)}$} & \textbf{6.84} $\bm{(\pm0.39)}$& \textbf{0.02 $\bm{(\pm0.02)}$} & \textbf{6.83 $\bm{(\pm0.37)}$}\\
+        \bottomrule
+    \end{tabular}}
+    \caption{The results of our method based on GradCAM instead of DCAM. They are leveraged for the Functionality Loss calculations.}
+    \label{tab:5}
+\end{table*}
+
+\subsection{\textcolor{red}{Mitigating conservative bias for balanced diagnostic assistance: enhancing practicality via knowledge-inherent translational adaptation in the data-constrained environments}}
+\label{Appendix:c3}
+%using one dataset as the training/validation/test set and reserve the remaining datasets strictly for external testing%
+% The motivation and goal of this experiment: data limited environments, external test 
+% Experimental procedure: divide -> retraining -> fine-tuning -> test / how much performance dropped?
+% Result table
+% Result analysis
+\textcolor{red}{We built a translational adaptation strategy assisted by a dual motivation that addresses both sociological disparities and technical constraints in computer-aided diagnosis. From a sociological perspective, many regions remain medically underserved \cite{81}. In those environments, there is a critical shortage of available data, often exhibiting non-IID (non-independent and identically distributed) characteristics, further exacerbating existing healthcare disparities. On the other hand, from a technical perspective, the practical deployment of AI is further hindered by the fact that most X-ray datasets are labeled for only a limited range of diseases, rendering dataset-specific models inefficient for comprehensive clinical use. To address these multifaceted challenges, we conduct an exploratory experiment, and this experimental framework is designed to lay the groundwork for the scalability and practical utility of diagnostic models in diverse, data-limited environments. Via leveraging the pre-trained weights from our Stage 1 ICP-L model, which was already trained to capture class-specific diagnostic feature representations, we ensured that the binary classification models could leverage inherited knowledge effectively.}
+
+\textcolor{red}{Specifically, we first divided our representative trained model (ICP-L trained via NIH CXR 14 with functionality loss) that executes multi-label classification into several binary classification models for each disease inspired from \cite{78, 79}. We did this by separating the last blocks and concatenating each of them to the copied common ResNet architecture with a new fully-connected layer with output size 1. Therefore, we constructed the disease number of binary classification ResNet18 models from the trained ICP. Then, we selected 4 diseases (Cardiomegaly, Consolidation, Pneumonia, and Pneumothorax) for this experiment, that are commonly included diseases in NIH CXR 14, CheXpert, and MIMIC-CXR datasets. We leveraged NIH CXR 14 as a training, fine-tuning, validation, and internal test dataset, and the CheXpert, and MIMIC-CXR as the external test datasets. The number of data used for this experiment is in the Table \ref{tab:7}. For retraining, we balanced the proportion of 'positive cases' where the patient of the sampled X-ray image has the disease and the 'negative cases' that are not in a 1:1 ratio to prevent bias due to data skewness between this to types of cases. We leveraged 1234 as the random seed for NIH CXR 14, CheXpert, and MIMIC-CXR datasets following the previous experiments. For the metric, we used AUC, DT-DF (the difference between DT and DF). For the False Positive (FP) rate and False Negative (FN) rate, we computed this via Youden's Index \cite{80}. For the FP and FN evaluations of trained ICP-L, we randomly sampled 10,000 X-ray images from the training dataset and computed the optimal threshold per category using the output probabilities. On the other hand, the divided models from the ICP-L, respectively trained for the binary classification, threshold values are defined via their fine-tuning datasets built for each class for the internal validation, and validation dataset for the external validation.}
+
+\begin{table*}
+    \centering
+    \begin{tabular}{c|ccccc}
+        \toprule
+        \multicolumn{6}{c}{\textbf{NIH CXR 14 For Binary Classification}}\\
+        \midrule
+        Disease & Retraining & Fine-Tuning & Validation & Internal Test & External Test \\
+        \midrule
+        Cardiomegaly & 3,366 & 100 & 100 & 25,196 & 21,964/20,000 \\
+        Consolidation & 5,668 & 100 & 100 & 25,196 & 21,964/20,000 \\
+        Pneumonia & 1,748 & 100 & 100 & 25,196 & 21,964/20,000 \\
+        Pneumothorax & 5,242 & 100 & 100 & 25,196 & 21,964/20,000 \\
+        \midrule
+    \end{tabular}
+    \caption{The information of the dataset leveraged in the experiments described in the \ref{Appendix:c3}. Regarding the external test dataset, the number of samples corresponds to the 'CheXpert/MIMIC-CXR' datasets.}
+    \label{tab:7}
+\end{table*}
+
+\begin{table*}
+    \centering
+    \begin{tabular}{c|cccc}
+        \toprule
+        \multicolumn{5}{c}{\textbf{ICP-L Performance With NIH CXR 14}}\\
+        \midrule
+        Disease & AUC & DT-DF & False Positive & False Negative \\
+        \midrule
+        Cardiomegaly & 78.88 & 5.87 & 36.20 & 19.76\\
+        Consolidation & 70.66 & 5.87 & 22.38 & 47.08\\
+        Pneumonia & 65.24 & 5.87 & 41.60 & 38.08\\
+        Pneumothorax & 80.63 & 5.87 & 26.76 & 25.55\\
+        \midrule
+    \end{tabular}
+    \caption{The experimental results of \ref{Appendix:c3}. The numbers in each cell represent the performances of each class of 'ICT-L' trained on NIH CXR 14 dataset in Stage 1 without additional training. The threshold values used in this experiment are 0.0255, 0.0268, 0.0888, and 0.0463 for each disease category.}
+    \label{tab:8}
+\end{table*}
+
+\begin{table*}
+    \centering
+    \begin{tabular}{c|cccc}
+        \toprule
+        \multicolumn{5}{c}{\textbf{Internal Validation With NIH CXR 14}}\\
+        \midrule
+        Disease & AUC & DT-DF & False Positive & False Negative \\
+        \midrule
+        Cardiomegaly & 81.05/81.51 & 22.48/20.51 & 18.00/17.20 & 32.00/38.78\\
+        Consolidation & 67.21/67.13  & 20.84/20.23 & 62.00/64.06 & 20.00/11.27 \\
+        Pneumonia & 64.13/54.50 & 14.20/11.76 & 16.00/17.18 & 72.00/77.18 \\
+        Pneumothorax & 68.29/69.11 & 21.89/20.94 & 45.00/39.89 & 30.00/31.40 \\
+        \midrule
+    \end{tabular}
+    \caption{The experimental results of \ref{Appendix:c3}. The numbers in each cell represent 'internal validation/internal test' performances using the model that recorded the best validation score during the fine-tuning procedure. The thresholding values used in this experiment are 0.693, 0.404, 0.664, and 0.485 for each disease category.}
+    \label{tab:6}
+\end{table*}
+
+\begin{table*}
+    \centering
+    \begin{tabular}{c|cccc}
+        \toprule
+        \multicolumn{5}{c}{\textbf{External Validation With CheXpert \& MIMIC-CXR}}\\
+        \midrule
+        Disease & AUC & DT-DF & False Positive & False Negative \\
+        \midrule
+        Cardiomegaly & 70.94/66.34 & 22.47/16.58 & 17.00/43.73 & 57.24/33.45 \\
+        Consolidation & 59.59/64.88 & 25.24/15.75 & 79.30/37.06 & 10.41/41.74\\
+        Pneumonia & 50.81/51.91 & 23.63/18.63 & 69.59/91.09 & 28.94/7.56 \\
+        Pneumothorax & 55.77/55.69 & 30.59/19.11 & 70.51/56.14 & 22.33/38.46 \\
+        \midrule
+    \end{tabular}
+    \caption{The experimental results of \ref{Appendix:c3}. The numbers in each cell represent 'external test (CheXpert)/external test (MIMIC-CXR)' performances. The thresholding value used in this experiment are 0.923, 0.559, 0.182, and 0.820 for CheXpert, and 0.580, 0.669, 0,120, and 0.617 for MIMIC-CXR for each disease category.}
+    \label{tab:9}
+\end{table*}
+
+\textcolor{red}{Via this approach, we can classify the 'Uncertain Case' that are not classified as 'positive cases' for all disease pool more precisely beyond the 'No Finding' label in datasets, since the dataset's disease types are limited. This 'Uncertain Case' will then be encouraged to be more thoroughly reviewed by physicians, that can lead to careful diagnosis and new findings.}
+
+\textcolor{red}{Regarding the quantitative analysis, via comparing the performances in the Table \ref{tab:8} and Table \ref{tab:6}, we can see that the AUC of the binary classification are not superior compared to the multi-label classification. However, it is noteworthy that ICT-L is highly biased toward negative cases, resulting in very low probabilities for each disease requiring a lower threshold value. These results also imply that, in the real-world, the similarity of the distribution characteristics between test and real-world data will play an important role in their performance. Compared to the ICT-L, the binary classification results show much lower False Negative ratios and a more balanced distribution, indicating that the output probabilities are higher. This indicates that the model is less conservative in deciding that there is certain evidence of the diseases. Specifically, as demonstrated in the comparative analysis of Table \ref{tab:8}, Table \ref{tab:6}, and Table \ref{tab:9}, our framework addresses a critical limitation of traditional multi-label diagnostic models. While the baseline ICT-L model exhibits a conservative bias toward 'negative' cases—leading to dangerously high False Negative rates in clinical settings—our proposed binary classification approach achieved a significantly more balanced output probability distribution. As shown in Figure \ref{fig:prop}, via effectively calibrating the conservative output probability distribution and providing more balanced output probabilities and higher DT-DF score, our method mitigates the risk of missing critical diagnoses (False Negatives) with higher DT scores, thereby enhancing the practical utility and diagnostic reliability of AI in data-constrained environments.} 
+
+\textcolor{red}{And we assume the reason for lower AUC values in the binary classification is because the amount of data available for retraining decreased after the significant change in the model architecture. And this hinders the model from learning an abundant representation. To mitigate this problem, especially in environments with limited data, hybrid deep radiomics \cite{83} can be a promising solution.}
+
+\textcolor{red}{Based on thees results, if AI-assisted diagnosis under almost no human human intervention will be possible in the future, the long-term evaluation and monitoring to compare the entire procedures’ performances of physicians and the machines in the various regions should be accompanied to minimize the risks of misdiagnosis and develop its performances.}
+
+\begin{figure*}
+\begin{center}    
+\includegraphics[width=3.0in]{figs/multi_Cardiomegaly.png}
+\includegraphics[width=3.0in]{figs/binary_Cardiomegaly.png}
+\includegraphics[width=3.0in]{figs/multi_Consolidation.png}
+\includegraphics[width=3.0in]{figs/binary_Consolidation.png}
+\includegraphics[width=3.0in]{figs/multi_Pneumonia.png}
+\includegraphics[width=3.0in]{figs/binary_Pneumonia.png}
+\includegraphics[width=3.0in]{figs/multi_Pneumothorax.png}
+\includegraphics[width=3.0in]{figs/binary_Pneumothorax.png}
+\end{center}
+\caption{The output probability of trained ICP-L (left column) and the binary classification models (right column).}
+\label{fig:prop}
+\end{figure*}
+
+\section{Theoretical guarantee}
+\label{Appendix:D}
+
+Our methodologies aim to increase the degree of independence of saliency maps between true and false class, thereby preventing shortcut learning. Generating independent saliency maps can be directly related to reducing the inner product of them. 
+
+We set $X$ is the input image and $\mathcal{S}_i = P_i(X)$ is the saliency map for class $i$. Then we represent $\hat{\mathcal{S}}_i = \frac{\mathcal{S}_i}{||\mathcal{S}_i||}$ is the normalized saliency maps. Then the objective function of two methodologies can be represented as below.
+
+\begin{equation*}
+ Score = \frac{\sum_{i \in True} \mathcal{S}_{i}}{\sum_{i \in True} \sum_{j \in False} <\hat{\mathcal{S}}_i, \hat{\mathcal{S}}_j> + \sum_{j \in False}\mathcal{S}_{j} + \epsilon}    
+\end{equation*}
+
+\textcolor{red}{$<\cdot>$ indicates inner product, and indices $i$ and $j$ are elements from the set of true and false classes' indices. To maximize this score, we should increase the intensity values for the true class and decrease those for the false classes. As a result, the gap between them becomes proportional to the \textit{Score}.}
+
+\begin{equation*}
+    Score \propto \sum_{i \in True} \mathcal{S}_i - \sum_{j \in False} \mathcal{S}_j
+\end{equation*}
+
+According to the Grad-CAM, the sum of saliency map values is proportional to the class score. 
+
+\begin{equation*}
+    y_c = \sum_{y = 1}^H \sum_{x = 1}^W \mathcal{S}^{yx}
+\end{equation*}
+
+$y_c$ is the class score of class $c$ and $x, y$ is the index of pixel values. $H$ is the height of the image and $W$ is the width of the image. From these fact, increasing the gap between sum of the true and false classes' pixel value also increases the gap of the final score of the true and false classes.
+
+\begin{equation*}
+    Score \propto \sum_{i \in True} \mathcal{S}_i - \sum_{j \in False} \mathcal{S}_j \propto \sum_{i \in True} y_i - \sum_{j \in False} y_j
+\end{equation*}
+
+As a result, maximizing $Score$ increase $\sum_{i \in} y_i$ and decreases $\sum_{i \in False} y_j$ so we can say that the combination of ICP and Functionality Loss improves overall diagnostic performance.
+
+\begin{figure*}
+\begin{center}
+\includegraphics[width=5.5in, height=3.7in]{Figure3.png}
+\caption{The structure of ICP. We parallelize the last convolutional blocks as many class. Through using Functionality Loss, each block is assigned to each class.}
+\label{fig:ICP}
+\end{center}
+\end{figure*}
+
+\subsection{\textcolor{red}{Use of Large Language Models in manuscript preperation}}
+\textcolor{red}{We acknowledge the use of Google’s Gemini and OpenAI's ChatGPT for language editing and for enhancing the manuscript's clarity and scientific quality; however, the authors have meticulously reviewed all AI-generated suggestions and remain solely responsible for the final scientific content and conclusions.}
+
+\end{document}
